@@ -14,7 +14,7 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ── GET ───────────────────────────────────────────────────────────────────────
+// ── GET
 if ($method === 'GET') {
     requireAdmin();
 
@@ -37,7 +37,7 @@ if ($method === 'GET') {
     ], $rows));
 }
 
-// ── POST: create ──────────────────────────────────────────────────────────────
+// ── POST: create 
 if ($method === 'POST') {
     requireAdmin();
 
@@ -86,7 +86,7 @@ if ($method === 'POST') {
     json_ok(['account_id' => (int)$pdo->lastInsertId(), 'message' => 'Account created successfully.']);
 }
 
-// ── PUT: update ───────────────────────────────────────────────────────────────
+// ── PUT: update 
 if ($method === 'PUT') {
     requireAdmin();
 
@@ -154,7 +154,7 @@ if ($method === 'PUT') {
     json_ok(['message' => 'Account updated successfully.']);
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// ── DELETE
 if ($method === 'DELETE') {
     requireAdmin();
 

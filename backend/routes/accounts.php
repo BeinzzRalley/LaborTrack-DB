@@ -1,12 +1,9 @@
 <?php
-// =============================================================================
 // routes/accounts.php — Account management (admin only)
-//
 // GET    /backend/routes/accounts.php        → list all accounts
 // POST   /backend/routes/accounts.php        → create account
 // PUT    /backend/routes/accounts.php        → update account
 // DELETE /backend/routes/accounts.php?id=X   → delete account
-// =============================================================================
 
 declare(strict_types=1);
 

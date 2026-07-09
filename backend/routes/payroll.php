@@ -487,6 +487,7 @@ if ($method === 'POST' && $action === 'unapprove') {
          WHERE  period_id = ?'
     )->execute(['Draft', $periodId]);
 
+<<<<<<< HEAD
     logAudit($pdo, 'payroll_unapprove', 'payroll_period', $periodId, [
         'department_id'        => (int)$period['department_id'],
         'period_year'          => (int)$period['period_year'],
@@ -494,6 +495,8 @@ if ($method === 'POST' && $action === 'unapprove') {
         'previously_approved_by' => $period['approved_by'] !== null ? (int)$period['approved_by'] : null,
     ]);
 
+=======
+>>>>>>> origin/main
     json_ok(['message' => 'Payroll period reverted to Draft.', 'period_id' => $periodId]);
 }
 

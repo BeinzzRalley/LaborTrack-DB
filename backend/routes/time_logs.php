@@ -131,10 +131,10 @@ if ($method === 'POST' && $action === 'clock_in') {
     $today = (new DateTime())->format('Y-m-d');
     $check = $pdo->prepare(
         'SELECT log_id FROM time_logs
-         WHERE  employee_id = ? AND DATE(clock_in) = ? AND clock_out IS NULL LIMIT 1'
+         WHERE  employee_id = ? AND DATE(clock_in) = ? LIMIT 1'
     );
     $check->execute([$empId, $today]);
-    if ($check->fetch()) json_err('You are already clocked in. Clock out before clocking in again.');
+    if ($check->fetch()) json_err('You have already clocked in today. Only one clock-in is allowed per day.');
 
     $now      = (new DateTime())->format('Y-m-d H:i:s');
     $statusId = isLate($now) ? 2 : 1;

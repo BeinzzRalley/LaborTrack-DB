@@ -1,9 +1,5 @@
 <?php
-// =============================================================================
-// routes/attendance_status.php — Read-only list of attendance statuses
-//
 // GET /backend/routes/attendance_status.php
-// =============================================================================
 
 declare(strict_types=1);
 

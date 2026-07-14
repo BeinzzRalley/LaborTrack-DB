@@ -1,8 +1,4 @@
 <?php
-// =============================================================================
-// routes/dashboard.php — Dashboard summary stats
-// UPDATED: Added weekly_attendance for TSK-36 (Attendance Statistics Chart)
-// =============================================================================
 
 declare(strict_types=1);
 
@@ -20,12 +16,9 @@ requireAuth();
 $pdo   = getDB();
 $today = (new DateTime())->format('Y-m-d');
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ADMIN DASHBOARD
-// ─────────────────────────────────────────────────────────────────────────────
 if (currentAccessLevel() === 'admin') {
 
-    // ── Headcount ─────────────────────────────────────────────────────────────
     $totalEmployees = (int)$pdo->query(
         "SELECT COUNT(*) FROM employees"
     )->fetchColumn();
@@ -58,12 +51,12 @@ if (currentAccessLevel() === 'admin') {
 
     $notClockedIn = max(0, $activeEmployees - $presentToday - $onLeaveToday);
 
-    // ── Pending leave requests ────────────────────────────────────────────────
+    //Pending leave requests 
     $pendingLeaves = (int)$pdo->query(
         "SELECT COUNT(*) FROM leave_records WHERE leave_status = 'Pending'"
     )->fetchColumn();
 
-    // ── Department breakdown ──────────────────────────────────────────────────
+    // Department breakdown 
     $deptRows = $pdo->query(
         "SELECT d.department_id,
                 d.department_name,
@@ -89,7 +82,7 @@ if (currentAccessLevel() === 'admin') {
         'late_today'      => (int)$r['late_today'],
     ], $deptRows);
 
-    // ── Recent clock-ins (last 10) ────────────────────────────────────────────
+    //Recent clock-ins (last 10)
     $recentRows = $pdo->query(
         "SELECT tl.log_id, tl.employee_id, e.full_name,
                 tl.clock_in, tl.clock_out, tl.total_hours,
@@ -114,7 +107,7 @@ if (currentAccessLevel() === 'admin') {
         'category_name' => $r['category_name'],
     ], $recentRows);
 
-    // ── Weekly attendance (TSK-36) ────────────────────────────────────────────
+    //  Weekly attendance (TSK-36)
     // Build Mon–Sun for the current ISO week; count present/late/absent per day.
     $weekStart = (new DateTime())->modify('Monday this week')->setTime(0, 0, 0);
     $weeklyAttendance = [];
@@ -179,9 +172,7 @@ if (currentAccessLevel() === 'admin') {
     ]);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // EMPLOYEE DASHBOARD
-// ─────────────────────────────────────────────────────────────────────────────
 $empId = currentEmployeeId();
 if ($empId === null) {
     json_ok([

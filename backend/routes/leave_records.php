@@ -21,7 +21,7 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ── GET ───────────────────────────────────────────────────────────────────────
+// list all forms admin/ employee self
 if ($method === 'GET') {
     requireAuth();
     $pdo    = getDB();
@@ -47,7 +47,7 @@ if ($method === 'GET') {
     json_ok(array_map('castLeave', $stmt->fetchAll()));
 }
 
-// ── POST: file a leave request ────────────────────────────────────────────────
+// POST: file a leave request 
 if ($method === 'POST') {
     requireAuth();
     $body       = bodyJson();
@@ -72,7 +72,7 @@ if ($method === 'POST') {
     json_ok(['leave_id' => (int)$pdo->lastInsertId(), 'message' => 'Leave request filed.']);
 }
 
-// ── PUT ───────────────────────────────────────────────────────────────────────
+// approve/reject (admin) - edit (employee)
 if ($method === 'PUT') {
     requireAuth();
     $body    = bodyJson();
@@ -109,7 +109,7 @@ if ($method === 'PUT') {
     $dateFrom = str($body, 'date_from', $leave['date_from']);
     $dateTo   = str($body, 'date_to',   $leave['date_to']);
     if ($dateTo < $dateFrom) json_err('date_to must be on or after date_from.');
-
+//employee
     $pdo->prepare(
         'UPDATE leave_records SET leave_type = ?, date_from = ?, date_to = ?, remarks = ? WHERE leave_id = ?'
     )->execute([
@@ -121,7 +121,7 @@ if ($method === 'PUT') {
     json_ok(['message' => 'Leave request updated.']);
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// DELETE (admin) / cancel (employee)
 if ($method === 'DELETE') {
     requireAuth();
     $id = intVal_($_GET, 'id');

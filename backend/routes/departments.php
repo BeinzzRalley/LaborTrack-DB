@@ -1,10 +1,4 @@
 <?php
-// GET    /backend/routes/departments.php         list all (auth required)
-// POST   /backend/routes/departments.php         create (admin only)
-// PUT    /backend/routes/departments.php         update (admin only)
-// DELETE /backend/routes/departments.php?id=X    delete (admin only)
-
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -13,7 +7,7 @@ require_once __DIR__ . '/../middleware/helpers.php';
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
-
+// list all depts
 if ($method === 'GET') {
     requireAuth();
     $pdo  = getDB();
@@ -33,7 +27,7 @@ if ($method === 'GET') {
         'employee_count'        => (int)$r['employee_count'],
     ], $rows));
 }
-
+//create dept
 if ($method === 'POST') {
     requireAdmin();
     $body = bodyJson();
@@ -49,7 +43,7 @@ if ($method === 'POST') {
     $stmt->execute([$name, strtoupper($code), floatVal_($body, 'labor_cost_allocation')]);
     json_ok(['department_id' => (int)$pdo->lastInsertId(), 'message' => 'Department created.']);
 }
-
+//update dept
 if ($method === 'PUT') {
     requireAdmin();
     $body = bodyJson();
@@ -71,7 +65,7 @@ if ($method === 'PUT') {
     ]);
     json_ok(['message' => 'Department updated.']);
 }
-
+//delete dept
 if ($method === 'DELETE') {
     requireAdmin();
     $id = intVal_($_GET, 'id');

@@ -1,13 +1,4 @@
 <?php
-// =============================================================================
-// routes/shift_categories.php — Shift category CRUD
-//
-// GET    /backend/routes/shift_categories.php        → list all (auth required)
-// POST   /backend/routes/shift_categories.php        → create (admin only)
-// PUT    /backend/routes/shift_categories.php        → update (admin only)
-// DELETE /backend/routes/shift_categories.php?id=X   → delete (admin only)
-// =============================================================================
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -16,7 +7,7 @@ require_once __DIR__ . '/../middleware/helpers.php';
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
-
+//list all
 if ($method === 'GET') {
     requireAuth();
     $rows = getDB()->query('SELECT * FROM shift_categories ORDER BY shift_category_id')->fetchAll();
@@ -28,7 +19,7 @@ if ($method === 'GET') {
         'standard_end_time'   => $r['standard_end_time'],
     ], $rows));
 }
-
+//create
 if ($method === 'POST') {
     requireAdmin();
     $body = bodyJson();
@@ -46,7 +37,7 @@ if ($method === 'POST') {
     ]);
     json_ok(['shift_category_id' => (int)$pdo->lastInsertId(), 'message' => 'Shift category created.']);
 }
-
+//update
 if ($method === 'PUT') {
     requireAdmin();
     $body = bodyJson();

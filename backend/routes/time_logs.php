@@ -68,7 +68,7 @@ const LOG_SELECT =
      LEFT JOIN overtime_categories oc ON oc.overtime_category_id = tl.overtime_category_id
      LEFT JOIN attendance_status  ast ON ast.status_id           = tl.status_id';
 
-// ── GET: list logs ────────────────────────────────────────────────────────────
+// list all logs
 if ($method === 'GET' && $action === '') {
     // Optional filters (admin only for employee_id / date range)
     $where  = [];
@@ -102,7 +102,7 @@ if ($method === 'GET' && $action === '') {
     json_ok(array_map('castLog', $stmt->fetchAll()));
 }
 
-// ── POST: status — is the current employee clocked in right now? ──────────────
+// status if employee is clock in rn
 if ($method === 'GET' && $action === 'status') {
     $empId = currentEmployeeId();
     if ($empId === null) json_err('No employee record linked to this account.', 403);
@@ -120,7 +120,7 @@ if ($method === 'GET' && $action === 'status') {
     ]);
 }
 
-// ── POST: clock in ────────────────────────────────────────────────────────────
+// POST: clock in
 if ($method === 'POST' && $action === 'clock_in') {
     $empId = currentEmployeeId();
     if ($empId === null) json_err('No employee record linked to this account.', 403);
@@ -150,7 +150,7 @@ if ($method === 'POST' && $action === 'clock_in') {
     json_ok(castLog($sel->fetch()), 201);
 }
 
-// ── POST: clock out ───────────────────────────────────────────────────────────
+// POST: clock out 
 if ($method === 'POST' && $action === 'clock_out') {
     $empId = currentEmployeeId();
     if ($empId === null) json_err('No employee record linked to this account.', 403);
@@ -191,7 +191,7 @@ if ($method === 'POST' && $action === 'clock_out') {
     json_ok(castLog($sel2->fetch()));
 }
 
-// ── PUT: admin edit ───────────────────────────────────────────────────────────
+//  PUT: admin edit 
 if ($method === 'PUT') {
     if (currentAccessLevel() !== 'admin') json_err('Admins only.', 403);
 

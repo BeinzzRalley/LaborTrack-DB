@@ -1,13 +1,4 @@
 <?php
-// =============================================================================
-// routes/overtime_categories.php — Overtime category CRUD
-//
-// GET    /backend/routes/overtime_categories.php        → list all (auth required)
-// POST   /backend/routes/overtime_categories.php        → create (admin only)
-// PUT    /backend/routes/overtime_categories.php        → update (admin only)
-// DELETE /backend/routes/overtime_categories.php?id=X   → delete (admin only)
-// =============================================================================
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -17,7 +8,7 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ── GET ───────────────────────────────────────────────────────────────────────
+// list all ot cats
 if ($method === 'GET') {
     requireAuth();
     $rows = getDB()->query(
@@ -31,7 +22,7 @@ if ($method === 'GET') {
     ], $rows));
 }
 
-// ── POST ──────────────────────────────────────────────────────────────────────
+// create cat
 if ($method === 'POST') {
     requireAdmin();
     $body = bodyJson();
@@ -52,7 +43,7 @@ if ($method === 'POST') {
     ]);
 }
 
-// ── PUT ───────────────────────────────────────────────────────────────────────
+// update cat
 if ($method === 'PUT') {
     requireAdmin();
     $body = bodyJson();
@@ -73,7 +64,7 @@ if ($method === 'PUT') {
     json_ok(['message' => 'Overtime category updated.']);
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// delete cat
 if ($method === 'DELETE') {
     requireAdmin();
     $id = intVal_($_GET, 'id');

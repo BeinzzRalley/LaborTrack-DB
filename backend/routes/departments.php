@@ -11,13 +11,21 @@ $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     requireAuth();
     $pdo  = getDB();
-    $rows = $pdo->query(
-        'SELECT d.*, COUNT(e.employee_id) AS employee_count
-         FROM   departments d
-         LEFT   JOIN employees e ON e.department_id = d.department_id
-         GROUP  BY d.department_id
-         ORDER  BY d.department_name'
-    )->fetchAll();
+    $search = $_GET['search'] ?? '';
+    $sql = 'SELECT d.*, COUNT(e.employee_id) AS employee_count
+            FROM   departments d
+            LEFT   JOIN employees e ON e.department_id = d.department_id
+            WHERE  1=1';
+    $params = [];
+    if ($search !== '') {
+        $sql .= ' AND (d.department_name LIKE ? OR d.department_code LIKE ?)';
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+    }
+    $sql .= ' GROUP BY d.department_id ORDER BY d.department_name';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
 
     json_ok(array_map(fn($r) => [
         'department_id'         => (int)$r['department_id'],

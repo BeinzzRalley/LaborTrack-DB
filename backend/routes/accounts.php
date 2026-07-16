@@ -13,13 +13,23 @@ if ($method === 'GET') {
     requireAdmin();
 
     $pdo  = getDB();
-    $rows = $pdo->query(
-        'SELECT a.account_id, a.employee_id, a.username, a.email, a.access_level,
-                e.full_name
-         FROM   accounts a
-         LEFT   JOIN employees e ON e.employee_id = a.employee_id
-         ORDER  BY a.account_id'
-    )->fetchAll();
+    $search = $_GET['search'] ?? '';
+    $sql = 'SELECT a.account_id, a.employee_id, a.username, a.email, a.access_level,
+                   e.full_name
+            FROM   accounts a
+            LEFT   JOIN employees e ON e.employee_id = a.employee_id
+            WHERE  1=1';
+    $params = [];
+    if ($search !== '') {
+        $sql .= ' AND (a.username LIKE ? OR e.full_name LIKE ? OR a.email LIKE ?)';
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+    }
+    $sql .= ' ORDER BY a.account_id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
 
     json_ok(array_map(fn($r) => [
         'account_id'   => (int)$r['account_id'],

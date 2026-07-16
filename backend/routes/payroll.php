@@ -139,6 +139,14 @@ if ($method === 'GET' && $action === 'periods') {
         $where[]  = 'pp.status = ?';
         $params[] = $_GET['status'];
     }
+    if (!empty($_GET['year'])) {
+        $where[]  = 'pp.period_year = ?';
+        $params[] = (int)$_GET['year'];
+    }
+    if (!empty($_GET['month'])) {
+        $where[]  = 'pp.period_month = ?';
+        $params[] = (int)$_GET['month'];
+    }
 
     $sql = 'SELECT pp.*, d.department_name
             FROM   payroll_periods pp

@@ -126,7 +126,7 @@ function castPeriod(array $r): array {
 
 // GET: list periods (admin)
 if ($method === 'GET' && $action === 'periods') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $where  = [];
     $params = [];
@@ -161,7 +161,7 @@ if ($method === 'GET' && $action === 'periods') {
 
 // GET: preview (compute without saving)
 if ($method === 'GET' && $action === 'preview') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $deptId = intVal_($_GET, 'department_id');
     $year   = intVal_($_GET, 'year');
@@ -194,7 +194,7 @@ if ($method === 'GET' && $action === 'preview') {
 
 // GET: records in a period (admin)
 if ($method === 'GET' && $action === 'records') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $periodId = intVal_($_GET, 'period_id');
     if (!$periodId) json_err('period_id is required.');
@@ -257,7 +257,7 @@ if ($method === 'GET' && $action === 'my_history') {
 
 // POST: generate — create Draft period + records
 if ($method === 'POST' && $action === 'generate') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $body   = bodyJson();
     $deptId = intVal_($body, 'department_id');
@@ -347,7 +347,7 @@ if ($method === 'POST' && $action === 'generate') {
 
 // PUT: edit one record in a Draft period (admin)
 if ($method === 'PUT' && $action === 'record') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $body     = bodyJson();
     $recordId = intVal_($body, 'record_id');
@@ -413,7 +413,7 @@ if ($method === 'PUT' && $action === 'record') {
 
 // POST: approve — lock the whole period
 if ($method === 'POST' && $action === 'approve') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $periodId = intVal_($_GET, 'period_id');
     if (!$periodId) json_err('period_id query param is required.');
@@ -443,7 +443,7 @@ if ($method === 'POST' && $action === 'approve') {
 
 // POST: unapprove (revert Approved - Draft) 
 if ($method === 'POST' && $action === 'unapprove') {
-    requireAdmin();
+    requirePayrollAdmin();
 
     $periodId = intVal_($_GET, 'period_id');
     if (!$periodId) json_err('period_id query param is required.');

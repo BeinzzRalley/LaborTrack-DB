@@ -92,7 +92,17 @@ function requireAuth(): void {
 
 function requireAdmin(): void {
     requireAuth();
-    if (currentAccessLevel() !== 'admin') json_err('Forbidden. Admins only.', 403);
+    if (currentAccessLevel() !== 'system admin') json_err('Forbidden. Admins only.', 403);
+}
+
+function requireSupervisor(): void{
+    requireAuth();
+    if(currentAccessLevel() !== 'supervisor') json_err('Forbidden. Supervisors only.', 403);    
+}
+
+function requirePayrollAdmin(): void {
+    requireAuth();
+    if (currentAccessLevel() !== 'payroll admin') json_err('Forbidden. Payroll admins only.', 403);
 }
 
 // ── Audit log ──────────────────────────────────────────────────────────────────

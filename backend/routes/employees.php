@@ -10,14 +10,16 @@ header('Content-Type: application/json');
 $method = $_SERVER['REQUEST_METHOD'];
 
 // List employees
-     if ($method === 'GET') {
+if ($method === 'GET') {
     requireAuth();
-    $pdo = getDB();
+    $pdo   = getDB();
+    $level = currentAccessLevel();
 
+    // ── Single-employee lookup (?id=) ──────────────────────────────
     if (isset($_GET['id'])) {
-        $id = (int)$_GET['id'];
-        $level = currentAccessLevel();
+        $id           = (int)$_GET['id'];
         $isPrivileged = in_array($level, ['system_admin', 'payroll_admin'], true);
+
         if (!$isPrivileged && $id !== currentEmployeeId()) {
             // Supervisor may view employees in their own department
             if ($level === 'supervisor') {
@@ -31,13 +33,47 @@ $method = $_SERVER['REQUEST_METHOD'];
                 json_err('Forbidden.', 403);
             }
         }
-        // ... existing single-employee SELECT unchanged
+
+        $stmt = $pdo->prepare(
+            'SELECT e.*, d.department_name, r.role_name
+             FROM   employees e
+             LEFT   JOIN departments d ON d.department_id = e.department_id
+             LEFT   JOIN roles       r ON r.role_id       = e.role_id
+             WHERE  e.employee_id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        if (!$row) json_err('Employee not found.', 404);
+
+        json_ok(castEmployee($row));
     }
 
-    $level = currentAccessLevel();
-
+    // ── List ────────────────────────────────────────────────────────
     if (in_array($level, ['system_admin', 'payroll_admin'], true)) {
-        // existing "all employees" query, unchanged
+        $search = $_GET['search'] ?? '';
+        $deptId = intVal_($_GET, 'department_id');
+
+        $sql = 'SELECT e.*, d.department_name, r.role_name
+                FROM   employees e
+                LEFT   JOIN departments d ON d.department_id = e.department_id
+                LEFT   JOIN roles       r ON r.role_id       = e.role_id
+                WHERE  1=1';
+        $params = [];
+
+        if ($search !== '') {
+            $sql .= ' AND (e.full_name LIKE ? OR e.email LIKE ?)';
+            $params[] = "%{$search}%";
+            $params[] = "%{$search}%";
+        }
+        if ($deptId) {
+            $sql .= ' AND e.department_id = ?';
+            $params[] = $deptId;
+        }
+        $sql .= ' ORDER BY e.full_name';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
     } elseif ($level === 'supervisor') {
         $deptId = currentDepartmentId();
         if ($deptId === null) json_ok([]);
@@ -54,7 +90,15 @@ $method = $_SERVER['REQUEST_METHOD'];
     } elseif (currentEmployeeId() === null) {
         json_ok([]);
     } else {
-        // existing "self" query, unchanged
+        $stmt = $pdo->prepare(
+            'SELECT e.*, d.department_name, r.role_name
+             FROM   employees e
+             LEFT   JOIN departments d ON d.department_id = e.department_id
+             LEFT   JOIN roles       r ON r.role_id       = e.role_id
+             WHERE  e.employee_id = ?'
+        );
+        $stmt->execute([currentEmployeeId()]);
+        $rows = $stmt->fetchAll();
     }
 
     json_ok(array_map('castEmployee', $rows));

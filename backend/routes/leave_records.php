@@ -62,6 +62,37 @@ function resolveLeaveStatusFilter(PDO $pdo, string $status): ?int {
     return $row ? (int)$row['leave_status_id'] : null;
 }
 
+// Returns true if the employee already has a Pending or Approved leave
+// record whose date range overlaps [dateFrom, dateTo]. $excludeLeaveId lets
+// an in-flight edit ignore its own row.
+function hasOverlappingLeave(
+    PDO $pdo,
+    int $employeeId,
+    string $dateFrom,
+    string $dateTo,
+    ?int $excludeLeaveId = null
+): bool {
+    $sql = 'SELECT lr.leave_id
+            FROM   leave_records lr
+            JOIN   leave_status ls ON ls.leave_status_id = lr.leave_status_id
+            WHERE  lr.employee_id = ?
+              AND  ls.status_name IN ("Pending", "Approved")
+              AND  lr.date_from <= ?
+              AND  lr.date_to   >= ?';
+    $params = [$employeeId, $dateTo, $dateFrom];
+
+    if ($excludeLeaveId !== null) {
+        $sql .= ' AND lr.leave_id != ?';
+        $params[] = $excludeLeaveId;
+    }
+
+    $sql .= ' LIMIT 1';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (bool)$stmt->fetch();
+}
+
 function computeLeaveHours(string $dateFrom, string $dateTo, ?float $provided = null): ?float {
     if ($provided !== null) {
         return $provided;
@@ -168,6 +199,9 @@ if ($method === 'POST') {
     if ($dateTo < $dateFrom) {
         json_err('date_to must be on or after date_from.');
     }
+    if (hasOverlappingLeave($pdo, $employeeId, $dateFrom, $dateTo)) {
+        json_err('This overlaps an existing pending or approved leave request.');
+    }
 
     $leaveHours = computeLeaveHours(
         $dateFrom,
@@ -188,7 +222,17 @@ if ($method === 'POST') {
         str($body, 'remarks') ?: null,
     ]);
 
-    json_ok(['leave_id' => (int)$pdo->lastInsertId(), 'message' => 'Leave request filed.']);
+    $newLeaveId = (int)$pdo->lastInsertId();
+
+    logAudit($pdo, 'leave_file', 'leave_record', $newLeaveId, [
+        'employee_id'   => $employeeId,
+        'leave_type_id' => $leaveTypeId,
+        'date_from'     => $dateFrom,
+        'date_to'       => $dateTo,
+        'leave_hours'   => $leaveHours,
+    ]);
+
+    json_ok(['leave_id' => $newLeaveId, 'message' => 'Leave request filed.']);
 }
 
 // approve/reject (admin) - edit (employee)
@@ -360,6 +404,9 @@ if ($method === 'PUT') {
     if ($dateTo < $dateFrom) {
         json_err('date_to must be on or after date_from.');
     }
+    if (hasOverlappingLeave($pdo, (int)$leave['employee_id'], $dateFrom, $dateTo, $leaveId)) {
+        json_err('This overlaps an existing pending or approved leave request.');
+    }
 
     $leaveHours = computeLeaveHours(
         $dateFrom,
@@ -382,6 +429,13 @@ if ($method === 'PUT') {
         $leaveId,
     ]);
 
+    logAudit($pdo, 'leave_edit', 'leave_record', $leaveId, [
+        'leave_type_id' => $leaveTypeId,
+        'date_from'     => $dateFrom,
+        'date_to'       => $dateTo,
+        'leave_hours'   => $leaveHours,
+    ]);
+
     json_ok(['message' => 'Leave request updated.']);
 }
 
@@ -401,7 +455,9 @@ if ($method === 'DELETE') {
         json_err('Leave record not found.', 404);
     }
 
-    if (!in_array(currentAccessLevel(), ['system_admin', 'payroll_admin'], true)) {
+    $isAdmin = in_array(currentAccessLevel(), ['system_admin', 'payroll_admin'], true);
+
+    if (!$isAdmin) {
         if ((int)$leave['employee_id'] !== currentEmployeeId()) {
             json_err('Forbidden.', 403);
         }
@@ -411,6 +467,14 @@ if ($method === 'DELETE') {
     }
 
     $pdo->prepare('DELETE FROM leave_records WHERE leave_id = ?')->execute([$id]);
+
+    logAudit($pdo, $isAdmin ? 'leave_delete' : 'leave_cancel', 'leave_record', $id, [
+        'employee_id'   => (int)$leave['employee_id'],
+        'leave_type_id' => $leave['leave_type_id'] !== null ? (int)$leave['leave_type_id'] : null,
+        'date_from'     => $leave['date_from'],
+        'date_to'       => $leave['date_to'],
+    ]);
+
     json_ok(['message' => 'Leave record deleted.']);
 }
 

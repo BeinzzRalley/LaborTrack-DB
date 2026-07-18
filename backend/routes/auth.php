@@ -23,7 +23,7 @@ if ($method === 'POST' && $action === 'login') {
     $pdo  = getDB();
     $stmt = $pdo->prepare(
         'SELECT a.account_id, a.employee_id, a.username, a.password_hash, a.access_level,
-                e.full_name
+                CONCAT(e.first_name, ' ', e.last_name) AS full_name
          FROM   accounts a
          LEFT   JOIN employees e ON e.employee_id = a.employee_id
          WHERE  a.username = ?

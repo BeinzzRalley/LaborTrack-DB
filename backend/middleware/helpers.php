@@ -1,17 +1,15 @@
 <?php
-// =============================================================================
 // middleware/helpers.php — Shared auth helpers, JSON responses, input casting
-//
 // Session shape (set on successful login, see routes/auth.php):
 //   $_SESSION['account_id']    (int)
 //   $_SESSION['employee_id']   (int|null)
 //   $_SESSION['access_level']  ('admin'|'employee')
 //   $_SESSION['username']      (string)
-// =============================================================================
+
 
 declare(strict_types=1);
 
-// ── CORS ─────────────────────────────────────────────────────────────────────
+// CORS 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 if (
@@ -32,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ── Session ───────────────────────────────────────────────────────────────────
+// Session 
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([
         'lifetime' => 0,
@@ -45,7 +43,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// ── JSON response helpers ─────────────────────────────────────────────────────
+// JSON response helpers
 function json_ok($data, int $status = 200): void {
     http_response_code($status);
     echo json_encode(['success' => true, 'data' => $data]);
@@ -58,7 +56,7 @@ function json_err(string $message, int $status = 400): void {
     exit;
 }
 
-// ── Request body helper ───────────────────────────────────────────────────────
+//Request body helper 
 function bodyJson(): array {
     $raw    = file_get_contents('php://input');
     if ($raw === false || $raw === '') return [];
@@ -66,7 +64,7 @@ function bodyJson(): array {
     return is_array($parsed) ? $parsed : [];
 }
 
-// ── Input casting helpers ─────────────────────────────────────────────────────
+// Input casting helpers 
 function str(array $body, string $key, string $default = ''): string {
     if (!isset($body[$key]) || $body[$key] === null) return $default;
     return trim((string)$body[$key]);
@@ -82,19 +80,61 @@ function floatVal_(array $body, string $key, float $default = 0.0): float {
     return (float)$body[$key];
 }
 
-// ── Auth helpers ──────────────────────────────────────────────────────────────
-function isLoggedIn(): bool          { return isset($_SESSION['account_id']); }
-function currentAccountId(): ?int    { return $_SESSION['account_id']   ?? null; }
-function currentEmployeeId(): ?int   { return $_SESSION['employee_id']  ?? null; }
+// Auth helpers 
+// access_level is one of: employee, supervisor, payroll_admin, system_admin
+function isLoggedIn(): bool            { return isset($_SESSION['account_id']); }
+function currentAccountId(): ?int      { return $_SESSION['account_id']   ?? null; }
+function currentEmployeeId(): ?int     { return $_SESSION['employee_id']  ?? null; }
 function currentAccessLevel(): ?string { return $_SESSION['access_level'] ?? null; }
+
+// Department of the currently logged-in employee (used for Supervisor scoping).
+// Cached per-request since it's called from several places (GET filters, etc.).
+function currentDepartmentId(): ?int {
+    static $deptId  = null;
+    static $loaded  = false;
+    if ($loaded) return $deptId;
+    $loaded = true;
+
+    $empId = currentEmployeeId();
+    if ($empId === null) return null;
+
+    $stmt = getDB()->prepare('SELECT department_id FROM employees WHERE employee_id = ?');
+    $stmt->execute([$empId]);
+    $row = $stmt->fetch();
+    $deptId = ($row && $row['department_id'] !== null) ? (int)$row['department_id'] : null;
+    return $deptId;
+}
 
 function requireAuth(): void {
     if (!isLoggedIn()) json_err('Authentication required.', 401);
 }
 
-function requireAdmin(): void {
+// Generic — pass any set of allowed access_level values
+function requireRole(array $allowed): void {
     requireAuth();
-    if (currentAccessLevel() !== 'admin') json_err('Forbidden. Admins only.', 403);
+    if (!in_array(currentAccessLevel(), $allowed, true)) {
+        json_err('Forbidden.', 403);
+    }
+}
+
+function requireSystemAdmin(): void {
+    requireRole(['system_admin']);
+}
+
+function requireSupervisor(): void {
+    // system_admin can always act as a fallback/override
+    requireRole(['supervisor', 'system_admin']);
+}
+
+function requirePayrollAdmin(): void {
+    requireRole(['payroll_admin', 'system_admin']);
+}
+
+// Kept as an alias for any call site still using the old 2-tier name.
+// Treated as System Admin only — replace call sites with the more specific
+// requireSystemAdmin() / requirePayrollAdmin() / requireSupervisor() over time.
+function requireAdmin(): void {
+    requireSystemAdmin();
 }
 
 // ── Audit log ──────────────────────────────────────────────────────────────────

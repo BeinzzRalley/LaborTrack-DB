@@ -1,10 +1,4 @@
 <?php
-// routes/accounts.php — Account management (admin only)
-// GET    /backend/routes/accounts.php        → list all accounts
-// POST   /backend/routes/accounts.php        → create account
-// PUT    /backend/routes/accounts.php        → update account
-// DELETE /backend/routes/accounts.php?id=X   → delete account
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -14,18 +8,28 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ── GET
+// admin side GET all accounts
 if ($method === 'GET') {
-    requireAdmin();
+    requireSystemAdmin();
 
     $pdo  = getDB();
-    $rows = $pdo->query(
-        'SELECT a.account_id, a.employee_id, a.username, a.email, a.access_level,
-                e.full_name
-         FROM   accounts a
-         LEFT   JOIN employees e ON e.employee_id = a.employee_id
-         ORDER  BY a.account_id'
-    )->fetchAll();
+    $search = $_GET['search'] ?? '';
+    $sql = 'SELECT a.account_id, a.employee_id, a.username, a.email, a.access_level,
+                   CONCAT(e.first_name, " ", e.last_name) AS full_name
+            FROM   accounts a
+            LEFT   JOIN employees e ON e.employee_id = a.employee_id
+            WHERE  1=1';
+    $params = [];
+    if ($search !== '') {
+        $sql .= ' AND (a.username LIKE ? OR CONCAT(e.first_name, " ", e.last_name) LIKE ? OR a.email LIKE ?)';
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+    }
+    $sql .= ' ORDER BY a.account_id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
 
     json_ok(array_map(fn($r) => [
         'account_id'   => (int)$r['account_id'],
@@ -37,9 +41,9 @@ if ($method === 'GET') {
     ], $rows));
 }
 
-// ── POST: create 
+// POST create account 
 if ($method === 'POST') {
-    requireAdmin();
+    requireSystemAdmin();
 
     $body        = bodyJson();
     $employeeId  = intVal_($body, 'employee_id');
@@ -51,8 +55,8 @@ if ($method === 'POST') {
     if ($username === '')  json_err('username is required.');
     if ($password === '')  json_err('password is required.');
     if ($email === '')     json_err('email is required.');
-    if (!in_array($accessLevel, ['admin', 'employee'], true)) {
-        json_err('access_level must be "admin" or "employee".');
+    if (!in_array($accessLevel, ['employee', 'supervisor', 'payroll_admin', 'system_admin'], true)) {
+        json_err('access_level must be employee, supervisor, payroll_admin, or system_admin.');
     }
     if (strlen($password) < 6) json_err('Password must be at least 6 characters.');
 
@@ -94,9 +98,9 @@ if ($method === 'POST') {
     json_ok(['account_id' => $newAccountId, 'message' => 'Account created successfully.']);
 }
 
-// ── PUT: update 
+// PUT update account admin side
 if ($method === 'PUT') {
-    requireAdmin();
+    requireSystemAdmin();
 
     $body        = bodyJson();
     $accountId   = intVal_($body, 'account_id');
@@ -133,7 +137,7 @@ if ($method === 'PUT') {
         $fields[] = 'email = ?'; $params[] = $email;
         if ($email !== $before['email']) $changed['email'] = ['from' => $before['email'], 'to' => $email];
     }
-    if ($accessLevel !== '' && in_array($accessLevel, ['admin', 'employee'], true)) {
+    if ($accessLevel !== '' && in_array($accessLevel, ['employee', 'supervisor', 'payroll_admin', 'system_admin'], true)) {
         $fields[] = 'access_level = ?'; $params[] = $accessLevel;
         if ($accessLevel !== $before['access_level']) $changed['access_level'] = ['from' => $before['access_level'], 'to' => $accessLevel];
     }
@@ -178,9 +182,9 @@ if ($method === 'PUT') {
     json_ok(['message' => 'Account updated successfully.']);
 }
 
-// ── DELETE
+// DELETE
 if ($method === 'DELETE') {
-    requireAdmin();
+    requireSystemAdmin();
 
     $id = intVal_($_GET, 'id');
     if (!$id) json_err('id query param is required.');

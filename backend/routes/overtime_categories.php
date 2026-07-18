@@ -1,13 +1,4 @@
 <?php
-// =============================================================================
-// routes/overtime_categories.php — Overtime category CRUD
-//
-// GET    /backend/routes/overtime_categories.php        → list all (auth required)
-// POST   /backend/routes/overtime_categories.php        → create (admin only)
-// PUT    /backend/routes/overtime_categories.php        → update (admin only)
-// DELETE /backend/routes/overtime_categories.php?id=X   → delete (admin only)
-// =============================================================================
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -17,7 +8,7 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// ── GET ───────────────────────────────────────────────────────────────────────
+// list all ot cats
 if ($method === 'GET') {
     requireAuth();
     $rows = getDB()->query(
@@ -27,24 +18,22 @@ if ($method === 'GET') {
     json_ok(array_map(fn($r) => [
         'overtime_category_id' => (int)$r['overtime_category_id'],
         'category_name'        => $r['category_name'],
-        'rate_multiplier'      => (float)$r['rate_multiplier'],
     ], $rows));
 }
 
-// ── POST ──────────────────────────────────────────────────────────────────────
+// create cat
 if ($method === 'POST') {
-    requireAdmin();
+    requirePayrollAdmin();
     $body = bodyJson();
     $name = str($body, 'category_name');
-    if ($name === '') json_err('category_name is required.');
-
-    $multiplier = floatVal_($body, 'rate_multiplier', 1.25);
-    if ($multiplier <= 0) json_err('rate_multiplier must be greater than 0.');
+    if ($name === '') {
+        json_err('category_name is required.');
+    }
 
     $pdo = getDB();
     $pdo->prepare(
-        'INSERT INTO overtime_categories (category_name, rate_multiplier) VALUES (?, ?)'
-    )->execute([$name, $multiplier]);
+        'INSERT INTO overtime_categories (category_name) VALUES (?)'
+    )->execute([$name]);
 
     json_ok([
         'overtime_category_id' => (int)$pdo->lastInsertId(),
@@ -52,48 +41,53 @@ if ($method === 'POST') {
     ]);
 }
 
-// ── PUT ───────────────────────────────────────────────────────────────────────
+// update cat
 if ($method === 'PUT') {
-    requireAdmin();
+    requirePayrollAdmin();
     $body = bodyJson();
     $id   = intVal_($body, 'overtime_category_id');
     $name = str($body, 'category_name');
-    if (!$id)       json_err('overtime_category_id is required.');
-    if ($name === '') json_err('category_name is required.');
-
-    $multiplier = floatVal_($body, 'rate_multiplier', 1.25);
-    if ($multiplier <= 0) json_err('rate_multiplier must be greater than 0.');
+    if (!$id) {
+        json_err('overtime_category_id is required.');
+    }
+    if ($name === '') {
+        json_err('category_name is required.');
+    }
 
     $stmt = getDB()->prepare(
-        'UPDATE overtime_categories SET category_name = ?, rate_multiplier = ? WHERE overtime_category_id = ?'
+        'UPDATE overtime_categories SET category_name = ? WHERE overtime_category_id = ?'
     );
-    $stmt->execute([$name, $multiplier, $id]);
-    if ($stmt->rowCount() === 0) json_err('Overtime category not found.', 404);
+    $stmt->execute([$name, $id]);
+    if ($stmt->rowCount() === 0) {
+        json_err('Overtime category not found.', 404);
+    }
 
     json_ok(['message' => 'Overtime category updated.']);
 }
 
-// ── DELETE ────────────────────────────────────────────────────────────────────
+// delete cat
 if ($method === 'DELETE') {
-    requireAdmin();
+    requirePayrollAdmin();
     $id = intVal_($_GET, 'id');
-    if (!$id) json_err('id query param is required.');
+    if (!$id) {
+        json_err('id query param is required.');
+    }
 
     $pdo = getDB();
 
-    // Block delete if any time logs reference this category
     $chk = $pdo->prepare(
-        'SELECT COUNT(*) FROM time_logs WHERE overtime_category_id = ?'
+        'SELECT COUNT(*) FROM time_log_claims WHERE overtime_category_id = ?'
     );
     $chk->execute([$id]);
     if ((int)$chk->fetchColumn() > 0) {
-        json_err('Cannot delete an overtime category that is assigned to time logs.');
+        json_err('Cannot delete an overtime category that is assigned to time log claims.');
     }
 
-    // Block delete if any payroll records reference this (via time logs already covered above)
     $stmt = $pdo->prepare('DELETE FROM overtime_categories WHERE overtime_category_id = ?');
     $stmt->execute([$id]);
-    if ($stmt->rowCount() === 0) json_err('Overtime category not found.', 404);
+    if ($stmt->rowCount() === 0) {
+        json_err('Overtime category not found.', 404);
+    }
 
     json_ok(['message' => 'Overtime category deleted.']);
 }

@@ -26,7 +26,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method !== 'GET') json_err('Method not allowed.', 405);
 
-requireAdmin();
+requireSystemAdmin();
 
 $pdo = getDB();
 

@@ -11,7 +11,7 @@ header('Content-Type: application/json');
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 
-// ── POST: login ───────────────────────────────────────────────────────────────
+// POST login
 if ($method === 'POST' && $action === 'login') {
     $body     = bodyJson();
     $username = str($body, 'username');
@@ -23,7 +23,7 @@ if ($method === 'POST' && $action === 'login') {
     $pdo  = getDB();
     $stmt = $pdo->prepare(
         'SELECT a.account_id, a.employee_id, a.username, a.password_hash, a.access_level,
-                e.full_name
+                CONCAT(e.first_name, \' \', e.last_name) AS full_name
          FROM   accounts a
          LEFT   JOIN employees e ON e.employee_id = a.employee_id
          WHERE  a.username = ?
@@ -43,6 +43,8 @@ if ($method === 'POST' && $action === 'login') {
     $_SESSION['access_level'] = $acc['access_level'];
     $_SESSION['username']     = $acc['username'];
 
+    logAudit($pdo, 'login', 'account', (int)$acc['account_id'], ['username' => $acc['username']]);
+
     json_ok([
         'account_id'   => (int)$acc['account_id'],
         'employee_id'  => $acc['employee_id'] !== null ? (int)$acc['employee_id'] : null,
@@ -52,7 +54,7 @@ if ($method === 'POST' && $action === 'login') {
     ]);
 }
 
-// ── POST: logout ──────────────────────────────────────────────────────────────
+//  POST logout
 if ($method === 'POST' && $action === 'logout') {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
@@ -63,7 +65,7 @@ if ($method === 'POST' && $action === 'logout') {
     json_ok(['message' => 'Logged out.']);
 }
 
-// ── GET: current session ──────────────────────────────────────────────────────
+// GET current session
 if ($method === 'GET' && $action === 'me') {
     requireAuth();
     json_ok([
@@ -74,7 +76,7 @@ if ($method === 'GET' && $action === 'me') {
     ]);
 }
 
-// ── POST: change password ─────────────────────────────────────────────────────
+//  POST change password 
 if ($method === 'POST' && $action === 'change_password') {
     requireAuth();
 
@@ -98,6 +100,8 @@ if ($method === 'POST' && $action === 'change_password') {
     $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
     $pdo->prepare('UPDATE accounts SET password_hash = ? WHERE account_id = ?')
         ->execute([$newHash, currentAccountId()]);
+
+    logAudit($pdo, 'password_reset', 'account', currentAccountId(), ['method' => 'self_service']);
 
     json_ok(['message' => 'Password changed successfully.']);
 }

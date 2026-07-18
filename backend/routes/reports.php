@@ -16,7 +16,7 @@ require_once __DIR__ . '/../middleware/helpers.php';
 header('Content-Type: application/json');
 
 requireAuth();
-requireAdmin();
+requirePayrollAdmin();
 
 $pdo    = getDB();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -55,14 +55,14 @@ if ($action === 'department_labor_cost') {
                 d.department_id,
                 d.department_name,
                 COUNT(DISTINCT e.employee_id)               AS employee_count,
-                COALESCE(SUM(tl.total_hours), 0)             AS total_hours_logged,
-                COALESCE(SUM(tl.total_hours * e.current_hourly_rate), 0) AS total_labor_cost
+                COUNT(tl.log_id)                            AS total_time_logs,
+                COALESCE(SUM(tl.total_hours), 0)            AS total_hours_logged
             FROM   departments d
             JOIN   employees   e  ON e.department_id = d.department_id
             JOIN   time_logs   tl ON tl.employee_id  = e.employee_id
             WHERE  ' . implode(' AND ', $where) . '
             GROUP  BY d.department_id, d.department_name
-            ORDER  BY total_labor_cost DESC';
+            ORDER  BY total_hours_logged DESC';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -71,8 +71,8 @@ if ($action === 'department_labor_cost') {
         'department_id'      => (int)$r['department_id'],
         'department_name'    => $r['department_name'],
         'employee_count'     => (int)$r['employee_count'],
+        'total_time_logs'    => (int)$r['total_time_logs'],
         'total_hours_logged' => (float)$r['total_hours_logged'],
-        'total_labor_cost'   => (float)$r['total_labor_cost'],
     ], $stmt->fetchAll()));
 }
 
@@ -107,18 +107,16 @@ if ($action === 'employee_earnings') {
 
     $sql = 'SELECT
                 e.employee_id,
-                e.full_name,
+                CONCAT(e.first_name, " ", e.last_name)        AS full_name,
                 d.department_name,
-                e.current_hourly_rate,
                 COUNT(tl.log_id)                              AS shifts_logged,
-                COALESCE(SUM(tl.total_hours), 0)               AS total_hours_worked,
-                COALESCE(SUM(tl.total_hours * e.current_hourly_rate), 0) AS total_earnings
+                COALESCE(SUM(tl.total_hours), 0)              AS total_hours_worked
             FROM       employees e
             LEFT JOIN  departments d  ON d.department_id = e.department_id
             LEFT JOIN  time_logs   tl ON ' . implode(' AND ', $logJoin) . '
             ' . (count($where) ? 'WHERE ' . implode(' AND ', $where) : '') . '
-            GROUP  BY e.employee_id, e.full_name, d.department_name, e.current_hourly_rate
-            ORDER  BY total_earnings DESC';
+            GROUP  BY e.employee_id, e.first_name, e.last_name, d.department_name
+            ORDER  BY total_hours_worked DESC';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -127,10 +125,8 @@ if ($action === 'employee_earnings') {
         'employee_id'         => (int)$r['employee_id'],
         'full_name'           => $r['full_name'],
         'department_name'     => $r['department_name'],
-        'current_hourly_rate' => (float)$r['current_hourly_rate'],
         'shifts_logged'       => (int)$r['shifts_logged'],
         'total_hours_worked'  => (float)$r['total_hours_worked'],
-        'total_earnings'      => (float)$r['total_earnings'],
     ], $stmt->fetchAll()));
 }
 

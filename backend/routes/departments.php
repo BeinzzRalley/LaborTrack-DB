@@ -1,10 +1,4 @@
 <?php
-// GET    /backend/routes/departments.php         list all (auth required)
-// POST   /backend/routes/departments.php         create (admin only)
-// PUT    /backend/routes/departments.php         update (admin only)
-// DELETE /backend/routes/departments.php?id=X    delete (admin only)
-
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -13,29 +7,40 @@ require_once __DIR__ . '/../middleware/helpers.php';
 header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
-
+// list all depts
 if ($method === 'GET') {
     requireAuth();
     $pdo  = getDB();
-    $rows = $pdo->query(
-        'SELECT d.*, COUNT(e.employee_id) AS employee_count
-         FROM   departments d
-         LEFT   JOIN employees e ON e.department_id = d.department_id
-         GROUP  BY d.department_id
-         ORDER  BY d.department_name'
-    )->fetchAll();
+    $sql = 'SELECT d.*, COUNT(e.employee_id) AS employee_count,
+                   CONCAT(sup.first_name, " ", sup.last_name) AS supervisor_name
+            FROM   departments d
+            LEFT   JOIN employees e ON e.department_id = d.department_id
+            LEFT   JOIN employees sup ON sup.employee_id = d.supervisor_id
+            WHERE  1=1';
+    $params = [];
+    $search = str($_GET, 'search');
+    if ($search !== '') {
+        $sql .= ' AND (d.department_name LIKE ? OR d.department_code LIKE ?)';
+        $params[] = "%{$search}%";
+        $params[] = "%{$search}%";
+    }
+    $sql .= ' GROUP BY d.department_id, sup.employee_id ORDER BY d.department_name';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
 
     json_ok(array_map(fn($r) => [
         'department_id'         => (int)$r['department_id'],
         'department_name'       => $r['department_name'],
         'department_code'       => $r['department_code'],
-        'labor_cost_allocation' => (float)($r['labor_cost_allocation'] ?? 0),
+        'supervisor_id'         => $r['supervisor_id'] !== null ? (int)$r['supervisor_id'] : null,
+        'supervisor_name'       => trim((string)$r['supervisor_name']) !== '' ? $r['supervisor_name'] : null,
         'employee_count'        => (int)$r['employee_count'],
     ], $rows));
 }
-
+//create dept
 if ($method === 'POST') {
-    requireAdmin();
+    requireSystemAdmin();
     $body = bodyJson();
     $name = str($body, 'department_name');
     $code = str($body, 'department_code');
@@ -44,14 +49,18 @@ if ($method === 'POST') {
 
     $pdo  = getDB();
     $stmt = $pdo->prepare(
-        'INSERT INTO departments (department_name, department_code, labor_cost_allocation) VALUES (?, ?, ?)'
+        'INSERT INTO departments (department_name, department_code, supervisor_id) VALUES (?, ?, ?)'
     );
-    $stmt->execute([$name, strtoupper($code), floatVal_($body, 'labor_cost_allocation')]);
+    $stmt->execute([
+        $name,
+        strtoupper($code),
+        intVal_($body, 'supervisor_id'),
+    ]);
     json_ok(['department_id' => (int)$pdo->lastInsertId(), 'message' => 'Department created.']);
 }
-
+//update dept
 if ($method === 'PUT') {
-    requireAdmin();
+    requireSystemAdmin();
     $body = bodyJson();
     $id   = intVal_($body, 'department_id');
     if (!$id) json_err('department_id is required.');
@@ -62,18 +71,18 @@ if ($method === 'PUT') {
     if (!$chk->fetch()) json_err('Department not found.', 404);
 
     $pdo->prepare(
-        'UPDATE departments SET department_name = ?, department_code = ?, labor_cost_allocation = ? WHERE department_id = ?'
+        'UPDATE departments SET department_name = ?, department_code = ?, supervisor_id = ? WHERE department_id = ?'
     )->execute([
         str($body, 'department_name'),
         strtoupper(str($body, 'department_code')),
-        floatVal_($body, 'labor_cost_allocation'),
+        intVal_($body, 'supervisor_id'),
         $id,
     ]);
     json_ok(['message' => 'Department updated.']);
 }
-
+//delete dept
 if ($method === 'DELETE') {
-    requireAdmin();
+    requireSystemAdmin();
     $id = intVal_($_GET, 'id');
     if (!$id) json_err('id query param is required.');
 

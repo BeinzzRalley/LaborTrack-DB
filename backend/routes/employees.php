@@ -150,8 +150,8 @@ if ($method === 'POST') {
     $stmt = $pdo->prepare(
         'INSERT INTO employees
             (department_id, role_id, first_name, last_name, email, contact_no, hire_date,
-             employment_status_id, employment_type_id, schedule_id, added_by_account_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        hourly_rate, employment_status_id, employment_type_id, schedule_id, added_by_account_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         intVal_($body, 'department_id') ?: null,
@@ -161,6 +161,8 @@ if ($method === 'POST') {
         str($body, 'email')      ?: null,
         str($body, 'contact_no') ?: null,
         $hireDate,
+       floatVal_($body, 'hourly_rate', 0.0),
+
         $statusId,
         intVal_($body, 'employment_type_id') ?: null,
         intVal_($body, 'schedule_id')        ?: null,
@@ -271,7 +273,7 @@ if ($method === 'PUT') {
     $pdo->prepare(
         'UPDATE employees
          SET department_id = ?, role_id = ?, first_name = ?, last_name = ?, email = ?,
-             contact_no = ?, hire_date = ?, employment_status_id = ?,
+             contact_no = ?, hire_date = ?, hourly_rate = ?, employment_status_id = ?,
              employment_type_id = ?, schedule_id = ?
          WHERE employee_id = ?'
     )->execute([
@@ -282,6 +284,8 @@ if ($method === 'PUT') {
         str($body, 'email')      ?: null,
         str($body, 'contact_no') ?: null,
         str($body, 'hire_date', $existing['hire_date']),
+       array_key_exists('hourly_rate', $body) ? floatVal_($body, 'hourly_rate', 0.0) : (float)$existing['hourly_rate'],
+
         $newStatusId,
         $newTypeId,
         $newScheduleId,
@@ -341,7 +345,7 @@ if ($method === 'DELETE') {
 
 json_err('Method not allowed.', 405);
 
-function castEmployee(array $r): array {
+function castEmployee(array $r, bool $includeRate = false): array {
     $firstName = $r['first_name'] ?? '';
     $lastName  = $r['last_name'] ?? '';
     $fullName  = trim($firstName . ' ' . $lastName);
@@ -356,6 +360,8 @@ function castEmployee(array $r): array {
         'email'                 => $r['email'],
         'contact_no'            => $r['contact_no'],
         'hire_date'             => $r['hire_date'],
+        'hourly_rate'           => $includeRate ? (float)($r['hourly_rate'] ?? 0) : null,
+
         'employment_status_id'  => $r['employment_status_id'] !== null ? (int)$r['employment_status_id'] : null,
         'employment_type_id'    => $r['employment_type_id']   !== null ? (int)$r['employment_type_id']   : null,
         'schedule_id'           => $r['schedule_id']          !== null ? (int)$r['schedule_id']          : null,

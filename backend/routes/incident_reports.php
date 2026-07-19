@@ -76,7 +76,7 @@ function resolveValidationStatusId(PDO $pdo, array $body, ?int $fallback = null)
 
 function canViewReport(PDO $pdo, array $report, ?string $level): bool {
     // System Admin / Payroll Admin (HR) can see everything.
-    if (in_array($level, ['system_admin', 'payroll_admin'], true)) {
+    if (in_array($level, ['system_admin', 'human_resources'], true)) {
         return true;
     }
     if ($level === 'supervisor') {
@@ -103,7 +103,7 @@ if ($method === 'GET') {
     $where  = [];
     $params = [];
 
-    if (in_array($level, ['system_admin', 'payroll_admin'], true)) {
+    if (in_array($level, ['system_admin', 'human_resources'], true)) {
         if (!empty($_GET['validation_status_id'])) {
             $where[]  = 'r.validation_status_id = ?';
             $params[] = (int)$_GET['validation_status_id'];
@@ -167,7 +167,7 @@ if ($method === 'POST') {
 // PUT — validate (confirm/dismiss) a report. Reports are immutable after
 // submission except by the validator (Supervisor / HR / Admin).
 if ($method === 'PUT') {
-    requireRole(['supervisor', 'payroll_admin', 'system_admin']);
+    requireRole(['supervisor', 'human_resources', 'system_admin']);
 
     $body     = bodyJson();
     $reportId = intVal_($body, 'report_id');
@@ -190,12 +190,18 @@ if ($method === 'PUT') {
 
     // Employees can never validate reports (enforced above by requireRole).
     $newStatusId = resolveValidationStatusId($pdo, $body, (int)$report['validation_status_id']);
-    if ($newStatusId === null || !in_array($newStatusId, [1, 2, 3], true)) {
-        json_err('validation_status_id must be Pending (1), Confirmed (2), or Dismissed (3).');
+
+    // Supervisors can only set Supervisor Approved (4) or Dismissed (3)
+    if ($level === 'supervisor' && $newStatusId !== null && !in_array($newStatusId, [3, 4], true)) {
+        json_err('Supervisors can only set status to Supervisor Approved or Dismissed.');
     }
 
-    $validatedAt = in_array($newStatusId, [2, 3], true) ? (new DateTime())->format('Y-m-d H:i:s') : null;
-    $validatedBy = in_array($newStatusId, [2, 3], true) ? currentAccountId() : null;
+    if ($newStatusId === null || !in_array($newStatusId, [1, 2, 3, 4], true)) {
+        json_err('validation_status_id must be Pending (1), Confirmed (2), Dismissed (3), or Supervisor Approved (4).');
+    }
+
+    $validatedAt = in_array($newStatusId, [2, 3, 4], true) ? (new DateTime())->format('Y-m-d H:i:s') : null;
+    $validatedBy = in_array($newStatusId, [2, 3, 4], true) ? currentAccountId() : null;
 
     $pdo->prepare(
         'UPDATE reports
@@ -220,3 +226,4 @@ if ($method === 'PUT') {
 }
 
 json_err('Method not allowed.', 405);
+

@@ -113,7 +113,7 @@ if ($method === 'GET') {
     $params = [];
     $level  = currentAccessLevel();
 
-    if (in_array($level, ['system_admin', 'payroll_admin'], true)) {
+    if (in_array($level, ['system_admin', 'human_resources'], true)) {
         if (!empty($_GET['employee_id'])) {
             $where[]  = 'lr.employee_id = ?';
             $params[] = (int)$_GET['employee_id'];
@@ -180,7 +180,7 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     requireAuth();
     $body       = bodyJson();
-    $employeeId = in_array(currentAccessLevel(), ['system_admin', 'payroll_admin'], true)
+    $employeeId = in_array(currentAccessLevel(), ['system_admin', 'human_resources'], true)
                   ? intVal_($body, 'employee_id', currentEmployeeId())
                   : currentEmployeeId();
     $leaveTypeId = resolveLeaveTypeId($pdo = getDB(), $body);
@@ -259,7 +259,7 @@ if ($method === 'PUT') {
 
     $level = currentAccessLevel();
 
-    if (in_array($level, ['system_admin', 'payroll_admin', 'supervisor'], true)) {
+    if (in_array($level, ['system_admin', 'human_resources', 'supervisor'], true)) {
         if ($level === 'supervisor') {
             if ((int)$leave['department_id'] !== currentDepartmentId()) {
                 json_err('Forbidden.', 403);
@@ -274,6 +274,11 @@ if ($method === 'PUT') {
             $body,
             $leave['leave_status_id'] !== null ? (int)$leave['leave_status_id'] : 1
         );
+
+        // Supervisors can only recommend (5) or reject (3) — not final approve (2)
+        if ($level === 'supervisor' && $newStatusId !== null && !in_array($newStatusId, [3, 5], true)) {
+            json_err('Supervisors can only recommend or reject leave requests. Final approval is by HR.');
+        }
 
         $leaveTypeId = resolveLeaveTypeId($pdo, $body)
             ?? ($leave['leave_type_id'] !== null ? (int)$leave['leave_type_id'] : null);
@@ -455,7 +460,7 @@ if ($method === 'DELETE') {
         json_err('Leave record not found.', 404);
     }
 
-    $isAdmin = in_array(currentAccessLevel(), ['system_admin', 'payroll_admin'], true);
+    $isAdmin = in_array(currentAccessLevel(), ['system_admin', 'human_resources'], true);
 
     if (!$isAdmin) {
         if ((int)$leave['employee_id'] !== currentEmployeeId()) {
@@ -466,6 +471,28 @@ if ($method === 'DELETE') {
         }
     }
 
+    // If deleting an approved leave, reverse the balance deduction
+    $wasApproved = (int)($leave['leave_status_id'] ?? 0) === 2;
+    if ($wasApproved && $leave['leave_type_id'] !== null) {
+        $empId     = (int)$leave['employee_id'];
+        $leaveYear = (int)date('Y', strtotime($leave['date_from']));
+        $daysUsed  = ($leave['leave_hours'] !== null ? (float)$leave['leave_hours'] : 0.0) / 8.0;
+
+        $balStmt = $pdo->prepare(
+            'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?'
+        );
+        $balStmt->execute([$empId, (int)$leave['leave_type_id'], $leaveYear]);
+        $balance = $balStmt->fetch();
+
+        if ($balance) {
+            $newUsed = max(0.0, (float)$balance['used_days'] - $daysUsed);
+            $newRem  = (float)$balance['entitled_days'] + (float)$balance['carried_over_days'] - $newUsed;
+            $pdo->prepare(
+                'UPDATE leave_balances SET used_days = ?, remaining_days = ? WHERE balance_id = ?'
+            )->execute([$newUsed, $newRem, $balance['balance_id']]);
+        }
+    }
+
     $pdo->prepare('DELETE FROM leave_records WHERE leave_id = ?')->execute([$id]);
 
     logAudit($pdo, $isAdmin ? 'leave_delete' : 'leave_cancel', 'leave_record', $id, [
@@ -473,6 +500,7 @@ if ($method === 'DELETE') {
         'leave_type_id' => $leave['leave_type_id'] !== null ? (int)$leave['leave_type_id'] : null,
         'date_from'     => $leave['date_from'],
         'date_to'       => $leave['date_to'],
+        'balance_reversed' => $wasApproved,
     ]);
 
     json_ok(['message' => 'Leave record deleted.']);
@@ -498,3 +526,4 @@ function castLeave(array $r): array {
         'full_name'              => trim($r['full_name'] ?? '') ?: null,
     ];
 }
+

@@ -30,14 +30,15 @@ if ($method === 'POST') {
     $body   = bodyJson();
     $name   = str($body, 'leave_name');
     $isPaid = isset($body['is_paid']) ? (int)(bool)$body['is_paid'] : 1;
+    $maxDays = array_key_exists('max_days_per_year', $body) ? floatVal_($body, 'max_days_per_year', 15.0) : 15.0;
 
     if ($name === '') json_err('leave_name is required.');
 
-    $stmt = $pdo->prepare('INSERT INTO leave_types (leave_name, is_paid) VALUES (?, ?)');
-    $stmt->execute([$name, $isPaid]);
+    $stmt = $pdo->prepare('INSERT INTO leave_types (leave_name, is_paid, max_days_per_year) VALUES (?, ?, ?)');
+    $stmt->execute([$name, $isPaid, $maxDays]);
     $id = (int)$pdo->lastInsertId();
 
-    json_ok(['leave_type_id' => $id, 'leave_name' => $name, 'is_paid' => $isPaid], 201);
+    json_ok(['leave_type_id' => $id, 'leave_name' => $name, 'is_paid' => $isPaid, 'max_days_per_year' => $maxDays], 201);
 }
 
 // PUT — update leave type (admin only)
@@ -47,14 +48,15 @@ if ($method === 'PUT') {
     $id     = intVal_($body, 'leave_type_id');
     $name   = str($body, 'leave_name');
     $isPaid = isset($body['is_paid']) ? (int)(bool)$body['is_paid'] : 1;
+    $maxDays = array_key_exists('max_days_per_year', $body) ? floatVal_($body, 'max_days_per_year', 15.0) : 15.0;
 
     if (!$id)   json_err('leave_type_id is required.');
     if (!$name) json_err('leave_name is required.');
 
-    $stmt = $pdo->prepare('UPDATE leave_types SET leave_name = ?, is_paid = ? WHERE leave_type_id = ?');
-    $stmt->execute([$name, $isPaid, $id]);
+    $stmt = $pdo->prepare('UPDATE leave_types SET leave_name = ?, is_paid = ?, max_days_per_year = ? WHERE leave_type_id = ?');
+    $stmt->execute([$name, $isPaid, $maxDays, $id]);
 
-    json_ok(['leave_type_id' => $id, 'leave_name' => $name, 'is_paid' => $isPaid]);
+    json_ok(['leave_type_id' => $id, 'leave_name' => $name, 'is_paid' => $isPaid, 'max_days_per_year' => $maxDays]);
 }
 
 // DELETE — delete leave type (admin only)

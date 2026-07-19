@@ -10,7 +10,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // GET — list exit records
 if ($method === 'GET') {
-    requireSupervisor(); // Gated for Supervisor or Admin
+    requireRole(['supervisor', 'human_resources', 'system_admin']);
     $pdo = getDB();
     $level = currentAccessLevel();
     $where = [];

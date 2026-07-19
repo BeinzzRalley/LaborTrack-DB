@@ -1,14 +1,4 @@
 <?php
-// routes/incident_reports.php — Employee attendance incident reports
-// (buddy punching, no-show, unauthorized attendance, system error, fraud, etc.)
-//
-// Not to be confused with reports.php, which serves admin payroll/labor-cost
-// analytics. This file implements the `reports` table workflow described in
-// the business logic spec:
-//   Employee files a report on a time log -> Supervisor/HR/Admin investigates
-//   -> Confirmed / Dismissed. Reports are immutable after submission except
-//   by the validator.
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -23,15 +13,15 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 const REPORT_SELECT =
     'SELECT r.*,
-            tl.employee_id, tl.work_date, tl.clock_in, tl.clock_out,
+            tl.clock_in, tl.clock_out,
             CONCAT(e.first_name, " ", e.last_name) AS employee_name,
             e.department_id,
             vs.status_name AS validation_status,
             rb.username AS reported_by_username,
             vb.username AS validated_by_username
      FROM      reports r
-     JOIN      time_logs tl ON tl.log_id = r.log_id
-     JOIN      employees e  ON e.employee_id = tl.employee_id
+     LEFT JOIN time_logs tl ON tl.log_id = r.log_id
+     JOIN      employees e  ON e.employee_id = r.employee_id
      LEFT JOIN validation_status vs ON vs.validation_status_id = r.validation_status_id
      LEFT JOIN accounts rb ON rb.account_id = r.reported_by_account_id
      LEFT JOIN accounts vb ON vb.account_id = r.validated_by_account_id';
@@ -39,7 +29,7 @@ const REPORT_SELECT =
 function castReport(array $r): array {
     return [
         'report_id'                => (int)$r['report_id'],
-        'log_id'                   => (int)$r['log_id'],
+        'log_id'                   => $r['log_id'] !== null ? (int)$r['log_id'] : null,
         'reported_by_account_id'   => (int)$r['reported_by_account_id'],
         'reported_by_username'     => $r['reported_by_username'] ?? null,
         'report_reason'            => $r['report_reason'],
@@ -137,26 +127,36 @@ if ($method === 'GET') {
 
 // POST — file a report against a time log
 if ($method === 'POST') {
-    $body   = bodyJson();
-    $logId  = intVal_($body, 'log_id');
-    $reason = str($body, 'report_reason');
-    $desc   = str($body, 'description');
+    $body       = bodyJson();
+    $employeeId = intVal_($body, 'employee_id');
+    $workDate   = str($body, 'work_date');
+    $reason     = str($body, 'report_reason');
+    $desc       = str($body, 'description');
 
-    if (!$logId) json_err('log_id is required.');
+    if (!$employeeId) json_err('employee_id is required.');
+    if ($workDate === '') json_err('work_date is required.');
     if ($reason === '') json_err('report_reason is required.');
     if ($desc === '') json_err('description is required.');
 
-    $chk = $pdo->prepare('SELECT log_id FROM time_logs WHERE log_id = ? LIMIT 1');
-    $chk->execute([$logId]);
-    if (!$chk->fetch()) json_err('Time log not found.', 404);
+    $chk = $pdo->prepare('SELECT employee_id FROM employees WHERE employee_id = ? LIMIT 1');
+    $chk->execute([$employeeId]);
+    if (!$chk->fetch()) json_err('Employee not found.', 404);
+
+    // Auto-link to a matching time log if one exists (optional, for context
+    // only — e.g. "Unauthorized Attendance" or "System Error" disputes an
+    // existing log). Left NULL when there's no log to link, as is the case
+    // for a "No Show".
+    $logStmt = $pdo->prepare('SELECT log_id FROM time_logs WHERE employee_id = ? AND work_date = ? LIMIT 1');
+    $logStmt->execute([$employeeId, $workDate]);
+    $logId = $logStmt->fetchColumn() ?: null;
 
     // Employees cannot validate their own reports, but anyone authenticated
     // may file one (e.g. reporting buddy punching on a colleague's log).
     $stmt = $pdo->prepare(
-        'INSERT INTO reports (log_id, reported_by_account_id, report_reason, description, validation_status_id)
-         VALUES (?, ?, ?, ?, 1)'
+        'INSERT INTO reports (employee_id, work_date, log_id, reported_by_account_id, report_reason, description, validation_status_id)
+         VALUES (?, ?, ?, ?, ?, ?, 1)'
     );
-    $stmt->execute([$logId, currentAccountId(), $reason, $desc]);
+    $stmt->execute([$employeeId, $workDate, $logId, currentAccountId(), $reason, $desc]);
     $reportId = (int)$pdo->lastInsertId();
 
     $sel = $pdo->prepare(REPORT_SELECT . ' WHERE r.report_id = ?');
@@ -226,4 +226,3 @@ if ($method === 'PUT') {
 }
 
 json_err('Method not allowed.', 405);
-

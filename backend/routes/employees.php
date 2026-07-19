@@ -150,8 +150,8 @@ if ($method === 'POST') {
     $stmt = $pdo->prepare(
         'INSERT INTO employees
             (department_id, role_id, first_name, last_name, email, contact_no, hire_date,
-             employment_status_id, employment_type_id, schedule_id, added_by_account_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        hourly_rate, employment_status_id, employment_type_id, schedule_id, added_by_account_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         intVal_($body, 'department_id') ?: null,
@@ -161,6 +161,8 @@ if ($method === 'POST') {
         str($body, 'email')      ?: null,
         str($body, 'contact_no') ?: null,
         $hireDate,
+       floatVal_($body, 'hourly_rate', 0.0),
+
         $statusId,
         intVal_($body, 'employment_type_id') ?: null,
         intVal_($body, 'schedule_id')        ?: null,
@@ -243,10 +245,35 @@ if ($method === 'PUT') {
         ? (intVal_($body, 'schedule_id') ?: null)
         : $oldScheduleId;
 
+    // If this update moves the employee from Active to any other status,
+    // treat it as a removal — require a reason and log it to employee_exits.
+    $isExit = false;
+    if ($newStatusId !== $oldStatusId) {
+        $stmt = $pdo->prepare('SELECT employment_status_id, status_name FROM employment_status WHERE employment_status_id IN (?, ?)');
+        $stmt->execute([$oldStatusId ?? 0, $newStatusId ?? 0]);
+        $names = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $names[(int)$row['employment_status_id']] = $row['status_name'];
+        }
+        $oldName = $oldStatusId !== null ? ($names[$oldStatusId] ?? null) : null;
+        $newName = $newStatusId !== null ? ($names[$newStatusId] ?? null) : null;
+        $isExit  = ($oldName === 'Active' || $oldName === null) && $newName !== null && $newName !== 'Active';
+    }
+
+    $exitReason = '';
+    if ($isExit) {
+       $exitReason = str($body, 'exit_reason');
+        if ($exitReason === '') {
+            json_err('exit_reason is required when moving an employee out of Active status.');
+       }
+    }
+
+    $pdo->beginTransaction();
+
     $pdo->prepare(
         'UPDATE employees
          SET department_id = ?, role_id = ?, first_name = ?, last_name = ?, email = ?,
-             contact_no = ?, hire_date = ?, employment_status_id = ?,
+             contact_no = ?, hire_date = ?, hourly_rate = ?, employment_status_id = ?,
              employment_type_id = ?, schedule_id = ?
          WHERE employee_id = ?'
     )->execute([
@@ -257,11 +284,19 @@ if ($method === 'PUT') {
         str($body, 'email')      ?: null,
         str($body, 'contact_no') ?: null,
         str($body, 'hire_date', $existing['hire_date']),
+       array_key_exists('hourly_rate', $body) ? floatVal_($body, 'hourly_rate', 0.0) : (float)$existing['hourly_rate'],
+
         $newStatusId,
         $newTypeId,
         $newScheduleId,
         $id,
     ]);
+
+    if ($isExit) {
+        $voluntary = array_key_exists('is_voluntary', $body) ? (int)$body['is_voluntary'] : 1;
+        $remarks   = str($body, 'remarks');
+        recordEmployeeExit($pdo, $id, $exitReason, $voluntary, $remarks, date('Y-m-d'));
+    }
 
     logAudit($pdo, 'employee_update', 'employee', $id, [
         'department_id'        => ['from' => $oldDeptId, 'to' => $newDeptId],
@@ -299,20 +334,18 @@ if ($method === 'PUT') {
             'Auto-logged on employee details update'
         ]);
     }
-
+    $pdo->commit();
     json_ok(['message' => 'Employee updated.']);
 }
 
-// DELETE — disabled. Employee records must never be hard-deleted; process
-// separations through POST /employee_exits.php, which sets employment_status_id
-// and preserves full history instead.
+
 if ($method === 'DELETE') {
     json_err('Employees cannot be deleted. Use the employee exit process instead.', 405);
 }
 
 json_err('Method not allowed.', 405);
 
-function castEmployee(array $r): array {
+function castEmployee(array $r, bool $includeRate = false): array {
     $firstName = $r['first_name'] ?? '';
     $lastName  = $r['last_name'] ?? '';
     $fullName  = trim($firstName . ' ' . $lastName);
@@ -327,6 +360,8 @@ function castEmployee(array $r): array {
         'email'                 => $r['email'],
         'contact_no'            => $r['contact_no'],
         'hire_date'             => $r['hire_date'],
+        'hourly_rate'           => $includeRate ? (float)($r['hourly_rate'] ?? 0) : null,
+
         'employment_status_id'  => $r['employment_status_id'] !== null ? (int)$r['employment_status_id'] : null,
         'employment_type_id'    => $r['employment_type_id']   !== null ? (int)$r['employment_type_id']   : null,
         'schedule_id'           => $r['schedule_id']          !== null ? (int)$r['schedule_id']          : null,

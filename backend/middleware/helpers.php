@@ -1,12 +1,4 @@
 <?php
-// middleware/helpers.php — Shared auth helpers, JSON responses, input casting
-// Session shape (set on successful login, see routes/auth.php):
-//   $_SESSION['account_id']    (int)
-//   $_SESSION['employee_id']   (int|null)
-//   $_SESSION['access_level']  ('admin'|'employee')
-//   $_SESSION['username']      (string)
-
-
 declare(strict_types=1);
 
 // CORS 
@@ -114,6 +106,14 @@ function requireRole(array $allowed): void {
     if (!in_array(currentAccessLevel(), $allowed, true)) {
         json_err('Forbidden.', 403);
     }
+}
+function recordEmployeeExit(PDO $pdo, int $employeeId, string $reason, int $voluntary, ?string $remarks, string $exitDate): int {
+    $stmt = $pdo->prepare(
+        'INSERT INTO employee_exits (employee_id, processed_by_account_id, exit_date, exit_reason, is_voluntary, remarks)
+         VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$employeeId, currentAccountId(), $exitDate, $reason, $voluntary, $remarks ?: null]);
+    return (int)$pdo->lastInsertId();
 }
 
 function requireSystemAdmin(): void {

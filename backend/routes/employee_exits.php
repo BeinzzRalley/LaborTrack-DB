@@ -83,21 +83,9 @@ if ($method === 'POST') {
     try {
         $pdo->beginTransaction();
 
-        // 1. Insert exit record
-        $stmt = $pdo->prepare(
-            'INSERT INTO employee_exits 
-                (employee_id, processed_by_account_id, exit_date, exit_reason, is_voluntary, remarks)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $employeeId,
-            currentAccountId(),
-            $date,
-            $reason,
-            $voluntary,
-            $remarks ?: null
-        ]);
-        $exitId = (int)$pdo->lastInsertId();
++        // 1. Insert exit record
++        $exitId = recordEmployeeExit($pdo, $employeeId, $reason, $voluntary, $remarks, $date);
+
 
         // 2. Update employee status to inactive/resigned
         $empStmt = $pdo->prepare('UPDATE employees SET employment_status_id = ? WHERE employee_id = ?');

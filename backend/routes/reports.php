@@ -1,13 +1,4 @@
 <?php
-// GET /backend/routes/reports.php?action=department_labor_cost
-//     optional: department_id, date_from, date_to
-// GET /backend/routes/reports.php?action=employee_earnings
-//     optional: department_id, date_from, date_to
-//
-// Both actions are admin-only and compute cost/earnings as
-// SUM(total_hours * current_hourly_rate) over time_logs with a
-// completed clock_out (total_hours IS NOT NULL).
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -26,9 +17,7 @@ if ($method !== 'GET') {
     json_err('Method not allowed.', 405);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET: department_labor_cost
-// ─────────────────────────────────────────────────────────────────────────────
 if ($action === 'department_labor_cost') {
 
     $deptId   = intVal_($_GET, 'department_id');
@@ -56,7 +45,9 @@ if ($action === 'department_labor_cost') {
                 d.department_name,
                 COUNT(DISTINCT e.employee_id)               AS employee_count,
                 COUNT(tl.log_id)                            AS total_time_logs,
-                COALESCE(SUM(tl.total_hours), 0)            AS total_hours_logged
+               COALESCE(SUM(tl.total_hours), 0)            AS total_hours_logged,
+                COALESCE(SUM(tl.total_hours * e.hourly_rate), 0) AS labor_cost_allocation
+ 
             FROM   departments d
             JOIN   employees   e  ON e.department_id = d.department_id
             JOIN   time_logs   tl ON tl.employee_id  = e.employee_id
@@ -73,6 +64,7 @@ if ($action === 'department_labor_cost') {
         'employee_count'     => (int)$r['employee_count'],
         'total_time_logs'    => (int)$r['total_time_logs'],
         'total_hours_logged' => (float)$r['total_hours_logged'],
+      'labor_cost_allocation' => round((float)$r['labor_cost_allocation'], 2),
     ], $stmt->fetchAll()));
 }
 
@@ -109,24 +101,28 @@ if ($action === 'employee_earnings') {
                 e.employee_id,
                 CONCAT(e.first_name, " ", e.last_name)        AS full_name,
                 d.department_name,
+                 e.hourly_rate,
                 COUNT(tl.log_id)                              AS shifts_logged,
-                COALESCE(SUM(tl.total_hours), 0)              AS total_hours_worked
-            FROM       employees e
+                COALESCE(SUM(tl.total_hours), 0)              AS total_hours_worked,
+                COALESCE(SUM(tl.total_hours * e.hourly_rate), 0) AS total_earnings
+                       FROM       employees e
             LEFT JOIN  departments d  ON d.department_id = e.department_id
             LEFT JOIN  time_logs   tl ON ' . implode(' AND ', $logJoin) . '
             ' . (count($where) ? 'WHERE ' . implode(' AND ', $where) : '') . '
-            GROUP  BY e.employee_id, e.first_name, e.last_name, d.department_name
+         GROUP  BY e.employee_id, e.first_name, e.last_name, d.department_name, e.hourly_rate
             ORDER  BY total_hours_worked DESC';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
     json_ok(array_map(fn($r) => [
-        'employee_id'         => (int)$r['employee_id'],
-        'full_name'           => $r['full_name'],
-        'department_name'     => $r['department_name'],
-        'shifts_logged'       => (int)$r['shifts_logged'],
-        'total_hours_worked'  => (float)$r['total_hours_worked'],
+         'employee_id'         => (int)$r['employee_id'],
+         'full_name'           => $r['full_name'],
+         'department_name'     => $r['department_name'],
+        'hourly_rate'         => (float)$r['hourly_rate'],
+         'shifts_logged'       => (int)$r['shifts_logged'],
+         'total_hours_worked'  => (float)$r['total_hours_worked'],
+        'total_earnings'      => round((float)$r['total_earnings'], 2),
     ], $stmt->fetchAll()));
 }
 

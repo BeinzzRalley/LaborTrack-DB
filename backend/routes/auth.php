@@ -1,5 +1,4 @@
 <?php
-// routes/auth.php — Login / logout / session check / change password
 
 declare(strict_types=1);
 

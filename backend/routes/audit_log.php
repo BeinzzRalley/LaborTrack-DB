@@ -1,19 +1,4 @@
 <?php
-// routes/audit_log.php — Audit log (admin only, read-only)
-// GET /backend/routes/audit_log.php
-//     ?action=X          filter by action (account_create, account_update,
-//                        account_delete, payroll_approve, payroll_unapprove)
-//     &target_type=X     filter by target_type (account, payroll_period)
-//     &target_id=X       filter by the affected row's id
-//     &account_id=X      filter by who performed the action
-//     &from=YYYY-MM-DD   filter by created_at >= from
-//     &to=YYYY-MM-DD     filter by created_at <= to (inclusive, end of day)
-//     &limit=N           default 100, max 500
-//     &offset=N          default 0
-//
-// Entries are written by logAudit() (see middleware/helpers.php) from
-// accounts.php (create/update/delete) and payroll.php (approve/unapprove).
-// This route only reads — nothing here writes to audit_log.
 
 declare(strict_types=1);
 

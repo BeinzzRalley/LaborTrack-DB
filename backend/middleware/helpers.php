@@ -1,12 +1,4 @@
 <?php
-// middleware/helpers.php — Shared auth helpers, JSON responses, input casting
-// Session shape (set on successful login, see routes/auth.php):
-//   $_SESSION['account_id']    (int)
-//   $_SESSION['employee_id']   (int|null)
-//   $_SESSION['access_level']  ('admin'|'employee')
-//   $_SESSION['username']      (string)
-
-
 declare(strict_types=1);
 
 // CORS 

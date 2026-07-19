@@ -16,9 +16,7 @@ requireAuth();
 $pdo   = getDB();
 $today = (new DateTime())->format('Y-m-d');
 
-// Builds the admin-style dashboard payload. When $deptId is null the figures
-// are company-wide (System Admin / Payroll Admin); when set, every query is
-// scoped to that one department (Supervisor).
+
 function buildAdminDashboard(PDO $pdo, string $today, ?int $deptId): array {
     $deptFilterEmp = $deptId !== null ? ' AND department_id = ' . $deptId : '';
     $deptFilterE   = $deptId !== null ? ' AND e.department_id = ' . $deptId : '';

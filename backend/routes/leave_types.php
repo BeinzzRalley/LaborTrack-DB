@@ -1,9 +1,4 @@
 <?php
-// leave_types.php
-// GET    → fetch all leave types (admin + employee)
-// POST   → create new leave type (admin only)
-// PUT    → update leave type (admin only)
-// DELETE → delete leave type (admin only)
 
 declare(strict_types=1);
 

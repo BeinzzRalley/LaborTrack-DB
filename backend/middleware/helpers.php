@@ -115,6 +115,14 @@ function requireRole(array $allowed): void {
         json_err('Forbidden.', 403);
     }
 }
+function recordEmployeeExit(PDO $pdo, int $employeeId, string $reason, int $voluntary, ?string $remarks, string $exitDate): int {
+    $stmt = $pdo->prepare(
+        'INSERT INTO employee_exits (employee_id, processed_by_account_id, exit_date, exit_reason, is_voluntary, remarks)
+         VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$employeeId, currentAccountId(), $exitDate, $reason, $voluntary, $remarks ?: null]);
+    return (int)$pdo->lastInsertId();
+}
 
 function requireSystemAdmin(): void {
     requireRole(['system_admin']);

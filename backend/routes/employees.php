@@ -243,6 +243,31 @@ if ($method === 'PUT') {
         ? (intVal_($body, 'schedule_id') ?: null)
         : $oldScheduleId;
 
+    // If this update moves the employee from Active to any other status,
+    // treat it as a removal — require a reason and log it to employee_exits.
+    $isExit = false;
+    if ($newStatusId !== $oldStatusId) {
+        $stmt = $pdo->prepare('SELECT employment_status_id, status_name FROM employment_status WHERE employment_status_id IN (?, ?)');
+        $stmt->execute([$oldStatusId ?? 0, $newStatusId ?? 0]);
+        $names = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $names[(int)$row['employment_status_id']] = $row['status_name'];
+        }
+        $oldName = $oldStatusId !== null ? ($names[$oldStatusId] ?? null) : null;
+        $newName = $newStatusId !== null ? ($names[$newStatusId] ?? null) : null;
+        $isExit  = ($oldName === 'Active' || $oldName === null) && $newName !== null && $newName !== 'Active';
+    }
+
+    $exitReason = '';
+    if ($isExit) {
+       $exitReason = str($body, 'exit_reason');
+        if ($exitReason === '') {
+            json_err('exit_reason is required when moving an employee out of Active status.');
+       }
+    }
+
+    $pdo->beginTransaction();
+
     $pdo->prepare(
         'UPDATE employees
          SET department_id = ?, role_id = ?, first_name = ?, last_name = ?, email = ?,
@@ -262,6 +287,12 @@ if ($method === 'PUT') {
         $newScheduleId,
         $id,
     ]);
+
+    if ($isExit) {
+        $voluntary = array_key_exists('is_voluntary', $body) ? (int)$body['is_voluntary'] : 1;
+        $remarks   = str($body, 'remarks');
+        recordEmployeeExit($pdo, $id, $exitReason, $voluntary, $remarks, date('Y-m-d'));
+    }
 
     logAudit($pdo, 'employee_update', 'employee', $id, [
         'department_id'        => ['from' => $oldDeptId, 'to' => $newDeptId],
@@ -299,13 +330,11 @@ if ($method === 'PUT') {
             'Auto-logged on employee details update'
         ]);
     }
-
+    $pdo->commit();
     json_ok(['message' => 'Employee updated.']);
 }
 
-// DELETE — disabled. Employee records must never be hard-deleted; process
-// separations through POST /employee_exits.php, which sets employment_status_id
-// and preserves full history instead.
+
 if ($method === 'DELETE') {
     json_err('Employees cannot be deleted. Use the employee exit process instead.', 405);
 }

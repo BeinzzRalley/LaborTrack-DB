@@ -306,15 +306,17 @@ if ($method === 'PUT') {
         );
 
         // Reject approval if the employee's remaining balance can't cover it.
+        // Leave type doesn't matter here — every employee draws from one
+        // shared 12-day pool per year, not a separate pool per type.
         $oldStatusIdCheck = $leave['leave_status_id'] !== null ? (int)$leave['leave_status_id'] : 1;
         if ($oldStatusIdCheck !== 2 && $newStatusId === 2) {
-            $checkYear    = (int)date('Y', strtotime($dateFrom));
-            $checkDays    = $leaveHours / 8.0;
-            $checkBalStmt = $pdo->prepare('SELECT remaining_days FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?');
-            $checkBalStmt->execute([(int)$leave['employee_id'], $leaveTypeId, $checkYear]);
-            $checkBal = $checkBalStmt->fetch();
-            if ($checkBal && (float)$checkBal['remaining_days'] < $checkDays) {
-                json_err('Insufficient leave balance for this request.');
+            $checkYear = (int)date('Y', strtotime($dateFrom));
+            $checkDays = $leaveHours / 8.0;
+            $checkPool = getOrCreateLeavePool($pdo, (int)$leave['employee_id'], $checkYear);
+            if ((float)$checkPool['remaining_days'] < $checkDays) {
+                json_err('Insufficient leave balance for this request. Only '
+                    . number_format((float)$checkPool['remaining_days'], 2)
+                    . ' day(s) remaining out of the 12-day annual allowance.');
             }
         }
 
@@ -334,53 +336,32 @@ if ($method === 'PUT') {
             $leaveId,
         ]);
 
-        // Sync leave balances
+        // Sync leave balances — a single 12-day pool per employee per year,
+        // shared across every leave type. Approving ANY leave type deducts
+        // from that same pool; reverting an approval gives the days back.
         $oldStatusId = $leave['leave_status_id'] !== null ? (int)$leave['leave_status_id'] : 1;
         if ($oldStatusId !== 2 && $newStatusId === 2) {
-            // Approving leave request! Increment used days
-            $empId = (int)$leave['employee_id'];
+            // Approving leave request! Increment used days in the shared pool.
+            $empId     = (int)$leave['employee_id'];
             $leaveYear = (int)date('Y', strtotime($dateFrom));
-            $daysUsed = $leaveHours / 8.0;
+            $daysUsed  = $leaveHours / 8.0;
 
-            $balStmt = $pdo->prepare('SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?');
-            $balStmt->execute([$empId, $leaveTypeId, $leaveYear]);
-            $balance = $balStmt->fetch();
-
-            if ($balance) {
-                $newUsed = (float)$balance['used_days'] + $daysUsed;
-                $newRem  = (float)$balance['entitled_days'] + (float)$balance['carried_over_days'] - $newUsed;
-                $updStmt = $pdo->prepare('UPDATE leave_balances SET used_days = ?, remaining_days = ? WHERE balance_id = ?');
-                $updStmt->execute([$newUsed, $newRem, $balance['balance_id']]);
-            } else {
-                $typeStmt = $pdo->prepare('SELECT max_days_per_year FROM leave_types WHERE leave_type_id = ?');
-                $typeStmt->execute([$leaveTypeId]);
-                $typeRow = $typeStmt->fetch();
-                $entitled = $typeRow ? (float)($typeRow['max_days_per_year'] ?? 15.0) : 15.0;
-
-                $newRem = $entitled - $daysUsed;
-                $insStmt = $pdo->prepare(
-                    'INSERT INTO leave_balances 
-                        (employee_id, leave_type_id, year, entitled_days, carried_over_days, used_days, remaining_days)
-                     VALUES (?, ?, ?, ?, 0.0, ?, ?)'
-                );
-                $insStmt->execute([$empId, $leaveTypeId, $leaveYear, $entitled, $daysUsed, $newRem]);
-            }
+            $pool = getOrCreateLeavePool($pdo, $empId, $leaveYear);
+            $newUsed = (float)$pool['used_days'] + $daysUsed;
+            $newRem  = (float)$pool['entitled_days'] + (float)$pool['carried_over_days'] - $newUsed;
+            $pdo->prepare('UPDATE leave_balances SET used_days = ?, remaining_days = ? WHERE balance_id = ?')
+                ->execute([$newUsed, $newRem, $pool['balance_id']]);
         } elseif ($oldStatusId === 2 && $newStatusId !== 2) {
-            // Reverting approval! Deduct used days
-            $empId = (int)$leave['employee_id'];
+            // Reverting approval! Give the days back to the shared pool.
+            $empId     = (int)$leave['employee_id'];
             $leaveYear = (int)date('Y', strtotime($leave['date_from']));
-            $daysUsed = ($leave['leave_hours'] !== null ? (float)$leave['leave_hours'] : 0.0) / 8.0;
+            $daysUsed  = ($leave['leave_hours'] !== null ? (float)$leave['leave_hours'] : 0.0) / 8.0;
 
-            $balStmt = $pdo->prepare('SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?');
-            $balStmt->execute([$empId, (int)$leave['leave_type_id'], $leaveYear]);
-            $balance = $balStmt->fetch();
-
-            if ($balance) {
-                $newUsed = max(0.0, (float)$balance['used_days'] - $daysUsed);
-                $newRem  = (float)$balance['entitled_days'] + (float)$balance['carried_over_days'] - $newUsed;
-                $updStmt = $pdo->prepare('UPDATE leave_balances SET used_days = ?, remaining_days = ? WHERE balance_id = ?');
-                $updStmt->execute([$newUsed, $newRem, $balance['balance_id']]);
-            }
+            $pool = getOrCreateLeavePool($pdo, $empId, $leaveYear);
+            $newUsed = max(0.0, (float)$pool['used_days'] - $daysUsed);
+            $newRem  = (float)$pool['entitled_days'] + (float)$pool['carried_over_days'] - $newUsed;
+            $pdo->prepare('UPDATE leave_balances SET used_days = ?, remaining_days = ? WHERE balance_id = ?')
+                ->execute([$newUsed, $newRem, $pool['balance_id']]);
         }
 
         logAudit($pdo, 'leave_approval', 'leave_record', $leaveId, [
@@ -471,17 +452,16 @@ if ($method === 'DELETE') {
         }
     }
 
-    // If deleting an approved leave, reverse the balance deduction
+    // If deleting an approved leave, reverse the balance deduction from the
+    // employee's shared 12-day pool for that year (not a per-type balance).
     $wasApproved = (int)($leave['leave_status_id'] ?? 0) === 2;
-    if ($wasApproved && $leave['leave_type_id'] !== null) {
+    if ($wasApproved) {
         $empId     = (int)$leave['employee_id'];
         $leaveYear = (int)date('Y', strtotime($leave['date_from']));
         $daysUsed  = ($leave['leave_hours'] !== null ? (float)$leave['leave_hours'] : 0.0) / 8.0;
 
-        $balStmt = $pdo->prepare(
-            'SELECT * FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?'
-        );
-        $balStmt->execute([$empId, (int)$leave['leave_type_id'], $leaveYear]);
+        $balStmt = $pdo->prepare('SELECT * FROM leave_balances WHERE employee_id = ? AND year = ?');
+        $balStmt->execute([$empId, $leaveYear]);
         $balance = $balStmt->fetch();
 
         if ($balance) {
@@ -526,4 +506,3 @@ function castLeave(array $r): array {
         'full_name'              => trim($r['full_name'] ?? '') ?: null,
     ];
 }
-

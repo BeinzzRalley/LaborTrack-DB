@@ -136,6 +136,35 @@ function requireAdmin(): void {
     requireSystemAdmin();
 }
 
+// ── Leave balance pool ───────────────────────────────────────────────────────
+// Company policy: every employee gets ANNUAL_LEAVE_DAYS total per year,
+// shared across ALL leave types (sick, vacation, emergency, etc. all draw
+// from the same pool — there is no per-type allowance). When the calendar
+// year changes, the pool simply resets back to ANNUAL_LEAVE_DAYS; nothing
+// carries over.
+const ANNUAL_LEAVE_DAYS = 12.0;
+
+// Fetch (or lazily create) an employee's single leave-day pool for a given
+// year. One row per (employee_id, year) — never per leave type. Creating it
+// on first use is what makes the "resets to 12 on a new year" behavior work
+// automatically, with no cron/manual reset step required.
+function getOrCreateLeavePool(PDO $pdo, int $employeeId, int $year): array {
+    $stmt = $pdo->prepare('SELECT * FROM leave_balances WHERE employee_id = ? AND year = ?');
+    $stmt->execute([$employeeId, $year]);
+    $row = $stmt->fetch();
+    if ($row) {
+        return $row;
+    }
+
+    $pdo->prepare(
+        'INSERT INTO leave_balances (employee_id, year, entitled_days, carried_over_days, used_days, remaining_days)
+         VALUES (?, ?, ?, 0.0, 0.0, ?)'
+    )->execute([$employeeId, $year, ANNUAL_LEAVE_DAYS, ANNUAL_LEAVE_DAYS]);
+
+    $stmt->execute([$employeeId, $year]);
+    return $stmt->fetch();
+}
+
 // ── Audit log ──────────────────────────────────────────────────────────────────
 // Writes one row to audit_log. Never throws out to the caller — a logging
 // failure should not block or roll back the action that triggered it, so

@@ -8,7 +8,26 @@ header('Content-Type: application/json');
 
 $method = $_SERVER['REQUEST_METHOD'];
 
-// GET — list leave balances
+// Every employee gets ANNUAL_LEAVE_DAYS (see helpers.php) per year, shared
+// across ALL leave types. leave_balances therefore has one row per
+// (employee_id, year) -- never per leave type.
+
+function castBalance(array $r): array {
+    return [
+        'balance_id'        => (int)$r['balance_id'],
+        'employee_id'       => (int)$r['employee_id'],
+        'employee_name'     => $r['employee_name'] ?? null,
+        'department_name'   => $r['department_name'] ?? null,
+        'year'              => (int)$r['year'],
+        'entitled_days'     => (float)$r['entitled_days'],
+        'carried_over_days' => (float)$r['carried_over_days'],
+        'used_days'         => (float)$r['used_days'],
+        'remaining_days'    => (float)$r['remaining_days'],
+        'last_updated'      => $r['last_updated'] ?? null,
+    ];
+}
+
+// GET -- list leave balances
 if ($method === 'GET') {
     requireAuth();
     $pdo = getDB();
@@ -51,12 +70,10 @@ if ($method === 'GET') {
 
     $sql = 'SELECT lb.*,
                    CONCAT(e.first_name, " ", e.last_name) AS employee_name,
-                   d.department_name,
-                   lt.leave_name AS leave_type_name
+                   d.department_name
             FROM   leave_balances lb
             JOIN   employees e ON e.employee_id = lb.employee_id
-            LEFT   JOIN departments d ON d.department_id = e.department_id
-            LEFT   JOIN leave_types lt ON lt.leave_type_id = lb.leave_type_id';
+            LEFT   JOIN departments d ON d.department_id = e.department_id';
 
     if (count($where) > 0) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -65,105 +82,13 @@ if ($method === 'GET') {
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    
-    json_ok(array_map(fn($r) => [
-        'balance_id'        => (int)$r['balance_id'],
-        'employee_id'       => (int)$r['employee_id'],
-        'employee_name'     => $r['employee_name'],
-        'department_name'   => $r['department_name'],
-        'leave_type_id'     => (int)$r['leave_type_id'],
-        'leave_type_name'   => $r['leave_type_name'],
-        'year'              => (int)$r['year'],
-        'entitled_days'     => (float)$r['entitled_days'],
-        'carried_over_days' => (float)$r['carried_over_days'],
-        'used_days'         => (float)$r['used_days'],
-        'remaining_days'    => (float)$r['remaining_days'],
-        'last_updated'      => $r['last_updated'],
-    ], $stmt->fetchAll()));
+
+    json_ok(array_map('castBalance', $stmt->fetchAll()));
 }
 
-// POST ?action=rollover — bulk-create next year's balances from the
-// previous year's remaining/unused entitlement, per employee + leave type.
-// Skips any employee/type/year combo that already has a balance row.
-if ($method === 'POST' && ($_GET['action'] ?? '') === 'rollover') {
-    requireHumanResources();
-    $body     = bodyJson();
-    $fromYear = intVal_($body, 'from_year');
-    $toYear   = intVal_($body, 'to_year');
-    // Cap how many unused days can roll into the new year; null = unlimited.
-    $capDays  = array_key_exists('carry_over_cap', $body) && $body['carry_over_cap'] !== null
-                ? floatVal_($body, 'carry_over_cap')
-                : null;
-
-    if (!$fromYear) json_err('from_year is required.');
-    if (!$toYear)   json_err('to_year is required.');
-    if ($toYear <= $fromYear) json_err('to_year must be after from_year.');
-
-    $pdo = getDB();
-
-    $srcStmt = $pdo->prepare(
-        'SELECT lb.*, lt.leave_name, lt.max_days_per_year
-         FROM   leave_balances lb
-         JOIN   leave_types lt ON lt.leave_type_id = lb.leave_type_id
-         WHERE  lb.year = ?'
-    );
-    $srcStmt->execute([$fromYear]);
-    $sources = $srcStmt->fetchAll();
-
-    $created = 0;
-    $skipped = 0;
-
-    $chkStmt = $pdo->prepare(
-        'SELECT balance_id FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?'
-    );
-    $insStmt = $pdo->prepare(
-        'INSERT INTO leave_balances
-            (employee_id, leave_type_id, year, entitled_days, carried_over_days, used_days, remaining_days)
-         VALUES (?, ?, ?, ?, ?, 0.0, ?)'
-    );
-
-    foreach ($sources as $src) {
-        $empId  = (int)$src['employee_id'];
-        $typeId = (int)$src['leave_type_id'];
-
-        $chkStmt->execute([$empId, $typeId, $toYear]);
-        if ($chkStmt->fetch()) {
-            $skipped++;
-            continue;
-        }
-
-        $unused = max(0.0, (float)$src['remaining_days']);
-        if ($capDays !== null) {
-            $unused = min($unused, $capDays);
-        }
-
-        $entitled = $src['max_days_per_year'] !== null ? (float)$src['max_days_per_year'] : (float)$src['entitled_days'];
-        $remaining = $entitled + $unused;
-
-        $insStmt->execute([$empId, $typeId, $toYear, $entitled, $unused, $remaining]);
-        $created++;
-    }
-
-    logAudit($pdo, 'leave_balance_create', 'leave_balance', null, [
-        'action'    => 'rollover',
-        'from_year' => $fromYear,
-        'to_year'   => $toYear,
-        'created'   => $created,
-        'skipped'   => $skipped,
-    ]);
-
-    json_ok([
-        'message' => "Rolled over {$created} balance(s) into {$toYear}" . ($skipped ? ", skipped {$skipped} already-existing." : "."),
-        'created' => $created,
-        'skipped' => $skipped,
-    ]);
-}
-
-// POST ?action=reset — full year-end reset (no carryover). Creates a
-// balance row for EVERY active employee, for EVERY leave type, regardless
-// of whether they had a balance in a prior year. entitled_days comes from
-// leave_types.max_days_per_year; carried_over_days and used_days both
-// start at 0. Skips any employee/type/year combo that already has a row.
+// POST ?action=reset -- creates a fresh 12-day balance row for every active
+// employee for the given year (no carryover -- the pool always resets flat
+// to ANNUAL_LEAVE_DAYS). Skips any employee/year combo that already has a row.
 if ($method === 'POST' && ($_GET['action'] ?? '') === 'reset') {
     requireHumanResources();
     $body = bodyJson();
@@ -182,69 +107,53 @@ if ($method === 'POST' && ($_GET['action'] ?? '') === 'reset') {
     $empStmt->execute();
     $employees = $empStmt->fetchAll(PDO::FETCH_COLUMN);
 
-    $typeStmt = $pdo->prepare('SELECT leave_type_id, max_days_per_year FROM leave_types');
-    $typeStmt->execute();
-    $leaveTypes = $typeStmt->fetchAll();
-
     $created = 0;
     $skipped = 0;
 
-    $chkStmt = $pdo->prepare(
-        'SELECT balance_id FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?'
-    );
+    $chkStmt = $pdo->prepare('SELECT balance_id FROM leave_balances WHERE employee_id = ? AND year = ?');
     $insStmt = $pdo->prepare(
-        'INSERT INTO leave_balances
-            (employee_id, leave_type_id, year, entitled_days, carried_over_days, used_days, remaining_days)
-         VALUES (?, ?, ?, ?, 0.0, 0.0, ?)'
+        'INSERT INTO leave_balances (employee_id, year, entitled_days, carried_over_days, used_days, remaining_days)
+         VALUES (?, ?, ?, 0.0, 0.0, ?)'
     );
 
     foreach ($employees as $empId) {
-        foreach ($leaveTypes as $lt) {
-            $typeId = (int)$lt['leave_type_id'];
-
-            $chkStmt->execute([$empId, $typeId, $year]);
-            if ($chkStmt->fetch()) {
-                $skipped++;
-                continue;
-            }
-
-            $entitled = (float)$lt['max_days_per_year'];
-            $insStmt->execute([$empId, $typeId, $year, $entitled, $entitled]);
-            $created++;
+        $chkStmt->execute([$empId, $year]);
+        if ($chkStmt->fetch()) {
+            $skipped++;
+            continue;
         }
+
+        $insStmt->execute([$empId, $year, ANNUAL_LEAVE_DAYS, ANNUAL_LEAVE_DAYS]);
+        $created++;
     }
 
     logAudit($pdo, 'leave_balance_create', 'leave_balance', null, [
-        'action'  => 'full_reset',
+        'action'  => 'annual_reset',
         'year'    => $year,
         'created' => $created,
         'skipped' => $skipped,
     ]);
 
     json_ok([
-        'message' => "Reset {$created} balance(s) for {$year}" . ($skipped ? ", skipped {$skipped} already-existing." : "."),
+        'message' => "Reset {$created} balance(s) to " . ANNUAL_LEAVE_DAYS . " days for {$year}" . ($skipped ? ", skipped {$skipped} already-existing." : "."),
         'created' => $created,
         'skipped' => $skipped,
     ]);
 }
 
-// POST — create
+// POST -- create (manual grant/adjustment, e.g. correcting a new hire's pool)
 if ($method === 'POST') {
     requireHumanResources();
     $body = bodyJson();
-    
+
     $employeeId  = intVal_($body, 'employee_id');
-    $leaveTypeId = intVal_($body, 'leave_type_id');
     $year        = intVal_($body, 'year');
-    $entitled    = floatVal_($body, 'entitled_days', 0.0);
+    $entitled    = floatVal_($body, 'entitled_days', ANNUAL_LEAVE_DAYS);
     $carriedOver = floatVal_($body, 'carried_over_days', 0.0);
     $used        = floatVal_($body, 'used_days', 0.0);
 
     if (!$employeeId) {
         json_err('employee_id is required.');
-    }
-    if (!$leaveTypeId) {
-        json_err('leave_type_id is required.');
     }
     if (!$year) {
         json_err('year is required.');
@@ -253,22 +162,21 @@ if ($method === 'POST') {
     $remaining = $entitled + $carriedOver - $used;
 
     $pdo = getDB();
-    
-    // Check duplication
-    $chk = $pdo->prepare('SELECT balance_id FROM leave_balances WHERE employee_id = ? AND leave_type_id = ? AND year = ?');
-    $chk->execute([$employeeId, $leaveTypeId, $year]);
+
+    // Check duplication -- one pool per employee per year.
+    $chk = $pdo->prepare('SELECT balance_id FROM leave_balances WHERE employee_id = ? AND year = ?');
+    $chk->execute([$employeeId, $year]);
     if ($chk->fetch()) {
-        json_err('A leave balance record already exists for this employee, type, and year.');
+        json_err('A leave balance record already exists for this employee and year.');
     }
 
     $stmt = $pdo->prepare(
-        'INSERT INTO leave_balances 
-            (employee_id, leave_type_id, year, entitled_days, carried_over_days, used_days, remaining_days)
-         VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO leave_balances
+            (employee_id, year, entitled_days, carried_over_days, used_days, remaining_days)
+         VALUES (?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $employeeId,
-        $leaveTypeId,
         $year,
         $entitled,
         $carriedOver,
@@ -280,7 +188,6 @@ if ($method === 'POST') {
 
     logAudit($pdo, 'leave_balance_create', 'leave_balance', $balanceId, [
         'employee_id'       => $employeeId,
-        'leave_type_id'     => $leaveTypeId,
         'year'              => $year,
         'entitled_days'     => $entitled,
         'carried_over_days' => $carriedOver,
@@ -291,13 +198,13 @@ if ($method === 'POST') {
     json_ok(['balance_id' => $balanceId, 'message' => 'Leave balance granted.']);
 }
 
-// PUT — update
+// PUT -- update
 if ($method === 'PUT') {
     requireHumanResources();
     $body = bodyJson();
-    
+
     $id          = intVal_($body, 'balance_id');
-    $entitled    = floatVal_($body, 'entitled_days', 0.0);
+    $entitled    = floatVal_($body, 'entitled_days', ANNUAL_LEAVE_DAYS);
     $carriedOver = floatVal_($body, 'carried_over_days', 0.0);
     $used        = floatVal_($body, 'used_days', 0.0);
 
@@ -308,17 +215,17 @@ if ($method === 'PUT') {
     $remaining = $entitled + $carriedOver - $used;
 
     $pdo = getDB();
-    $stmt = $pdo->prepare(
-        'UPDATE leave_balances 
-         SET    entitled_days = ?, carried_over_days = ?, used_days = ?, remaining_days = ?
-         WHERE  balance_id = ?'
-    );
     $existsStmt = $pdo->prepare('SELECT balance_id FROM leave_balances WHERE balance_id = ? LIMIT 1');
     $existsStmt->execute([$id]);
     if (!$existsStmt->fetch()) {
         json_err('Leave balance not found.', 404);
     }
 
+    $stmt = $pdo->prepare(
+        'UPDATE leave_balances
+         SET    entitled_days = ?, carried_over_days = ?, used_days = ?, remaining_days = ?
+         WHERE  balance_id = ?'
+    );
     $stmt->execute([
         $entitled,
         $carriedOver,
@@ -358,4 +265,3 @@ if ($method === 'DELETE') {
 }
 
 json_err('Method not allowed.', 405);
-

@@ -121,8 +121,9 @@ if ($method === 'GET') {
     } elseif (currentEmployeeId() === null) {
         json_ok([]);
     } else {
-        $stmt = $pdo->prepare(EMPLOYEE_SELECT . ' WHERE e.employee_id = ?');
-        $stmt->execute([currentEmployeeId()]);
+        // Allow regular employees to fetch all active employee profiles (sensitive fields like hourly_rate are automatically hidden by $includeRate)
+        $stmt = $pdo->prepare(EMPLOYEE_SELECT . ' ORDER BY e.last_name, e.first_name');
+        $stmt->execute();
         $rows = $stmt->fetchAll();
     }
 

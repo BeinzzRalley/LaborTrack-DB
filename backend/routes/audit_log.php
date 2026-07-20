@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 require_once __DIR__ . '/../config/db.php';
@@ -19,7 +18,7 @@ $where  = [];
 $params = [];
 
 if (!empty($_GET['action'])) {
-    $allowed = ['account_create', 'account_update', 'account_delete', 'payroll_approve', 'payroll_unapprove'];
+    $allowed = ['account_create', 'account_update', 'account_delete'];
     if (!in_array($_GET['action'], $allowed, true)) json_err('Invalid action filter.');
     $where[]  = 'al.action = ?';
     $params[] = $_GET['action'];
@@ -80,4 +79,3 @@ json_ok([
         'created_at'       => $r['created_at'],
     ], $rows),
 ]);
-

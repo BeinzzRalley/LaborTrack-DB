@@ -141,9 +141,8 @@ function requireAdmin(): void {
 // failure should not block or roll back the action that triggered it, so
 // errors are swallowed after being reported to the PHP error log.
 //
-//   $action     one of: account_create, account_update, account_delete,
-//               payroll_approve, payroll_unapprove
-//   $targetType e.g. 'account', 'payroll_period'
+//   $action     one of: account_create, account_update, account_delete
+//   $targetType e.g. 'account'
 //   $targetId   id of the affected row (nullable, e.g. after a delete)
 //   $details    associative array of context (old/new values, etc.); stored as JSON
 function logAudit(

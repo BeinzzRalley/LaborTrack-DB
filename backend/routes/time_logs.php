@@ -196,7 +196,7 @@ if ($method === 'GET' && $action === 'status') {
 
 // POST: clock in (or resume after clock-out)
 if ($method === 'POST' && $action === 'clock_in') {
-    requireRole(['employee', 'supervisor']);
+    requireRole(['employee', 'supervisor', 'human_resources']);
     $empId = currentEmployeeId();
     if ($empId === null) {
         json_err('No employee record linked to this account.', 403);
@@ -255,7 +255,7 @@ if ($method === 'POST' && $action === 'clock_in') {
 
 // POST: clock out
 if ($method === 'POST' && $action === 'clock_out') {
-    requireRole(['employee', 'supervisor']);
+    requireRole(['employee', 'supervisor', 'human_resources']);
     $empId = currentEmployeeId();
     if ($empId === null) {
         json_err('No employee record linked to this account.', 403);

@@ -230,8 +230,12 @@ if ($method === 'PUT') {
         $existing['employment_status_id'] !== null ? (int)$existing['employment_status_id'] : null
     );
 
-    $newDeptId   = intVal_($body, 'department_id') ?: null;
-    $newRoleId   = intVal_($body, 'role_id')       ?: null;
+    $newDeptId   = array_key_exists('department_id', $body)
+        ? (intVal_($body, 'department_id') ?: null)
+        : ($existing['department_id'] !== null ? (int)$existing['department_id'] : null);
+    $newRoleId   = array_key_exists('role_id', $body)
+        ? (intVal_($body, 'role_id') ?: null)
+        : ($existing['role_id'] !== null ? (int)$existing['role_id'] : null);
     $newStatusId = $statusId;
     $newTypeId   = array_key_exists('employment_type_id', $body)
         ? (intVal_($body, 'employment_type_id') ?: null)
@@ -269,6 +273,9 @@ if ($method === 'PUT') {
        }
     }
 
+    $newEmail   = array_key_exists('email', $body) ? (str($body, 'email') ?: null) : $existing['email'];
+    $newContact = array_key_exists('contact_no', $body) ? (str($body, 'contact_no') ?: null) : $existing['contact_no'];
+
     $pdo->beginTransaction();
 
     $pdo->prepare(
@@ -282,8 +289,8 @@ if ($method === 'PUT') {
         $newRoleId,
         $firstName,
         $lastName,
-        str($body, 'email')      ?: null,
-        str($body, 'contact_no') ?: null,
+        $newEmail,
+        $newContact,
         str($body, 'hire_date', $existing['hire_date']),
        array_key_exists('hourly_rate', $body) ? floatVal_($body, 'hourly_rate', 0.0) : (float)$existing['hourly_rate'],
 
@@ -375,4 +382,3 @@ function castEmployee(array $r, bool $includeRate = false): array {
         'role_name'             => $r['role_name']             ?? null,
     ];
 }
-
